@@ -1,6 +1,8 @@
 //! 개발자에게 오는 건의 편지함임 (`letters.json`). 릴레이는 읽지 못하는 봉인 상자를 두고
 //! 모든 보내기 한도를 스스로 지킴: 앱은 고쳐질 수 있지만 릴레이는 아님.
 //! 📮 공개 건의함 요약도 편지 옆에 둠. `hub::mail`이 `Hub::mail` 잠금 안에서 씀.
+//! 🖼️ 편지에 붙은 봉인 사진은 `letter-photos/<id>.bin`(0600)에 따로 둠: `letters.json`은 작게 남고
+//! (편집마다 다시 씀), 사진은 편지와 같이 지워짐. 데이터 폴더가 없으면(시험) 메모리에 둠.
 
 use crate::board::{self, Entry, Item, Status};
 use crate::proto;
@@ -8,12 +10,16 @@ use crate::store::write_private;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// 데이터 폴더 안 편지함 파일 이름
 pub const LETTERS_FILE: &str = "letters.json";
 /// 가장 큰 봉인 편지 (한국어 1000자와 약간의 JSON이 넉넉히 들어감)
 pub const MAX_BOX: usize = screenpet_proto::MAX_SEALED;
+/// 🖼️ 봉인 사진 한 장의 최대 바이트. 편지함이 다 차도 사진은 200 × 약 120 KiB ≈ 24 MiB까지
+pub const MAX_PHOTO: usize = screenpet_proto::MAX_IMG_SEALED;
+/// 데이터 폴더 안 봉인 사진 폴더 이름
+pub const PHOTO_DIR: &str = "letter-photos";
 /// 두는 편지 수. 넘으면 새 편지를 거절하고 옛 편지는 절대 안 버림 (폭주가 진짜 편지를 밀어내지 못함)
 pub const MAX_LETTERS: usize = 200;
 /// 하루(미닫이)당 설치 키 하나의 편지 수 (v0.6.3부터 5통)
@@ -49,13 +55,21 @@ pub struct StoredLetter {
     pub private: bool,
     /// 봉인된 편지, hex
     pub r#box: String,
+    /// 🖼️ 봉인 사진 바이트 수 (0 = 없음, 사진은 `PHOTO_DIR`에). 옛 파일엔 없음
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub img: u32,
+}
+
+/// 0이면 파일에 안 씀
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// 디스크 편지를 와이어 편지로 바꿈 (필드가 같아 JSON도 같음)
 impl From<StoredLetter> for screenpet_proto::relay::Letter {
     /// 필드를 그대로 옮김
     fn from(l: StoredLetter) -> Self {
-        screenpet_proto::relay::Letter { id: l.id, at: l.at, from: l.from, read: l.read, done: l.done, rejected: l.rejected, private: l.private, r#box: l.r#box }
+        screenpet_proto::relay::Letter { id: l.id, at: l.at, from: l.from, read: l.read, done: l.done, rejected: l.rejected, private: l.private, r#box: l.r#box, img: l.img }
     }
 }
 
@@ -149,12 +163,23 @@ pub enum BoardRefuse {
 pub struct Mailbox {
     data: Data,
     dirty: bool,
+    /// 🖼️ 봉인 사진 폴더 (없으면 아래 메모리에 둠)
+    photo_dir: Option<PathBuf>,
+    /// 🖼️ 폴더가 없을 때의 봉인 사진
+    photos: BTreeMap<u64, Vec<u8>>,
 }
 
 impl Mailbox {
     /// `from`(인증된 키)이 주소 묶음 `ip`에서 보낸 봉인 편지를 저장하거나 안 되는 까닭을 말함. `seen_days`는 설치 저장소에서 옴
+    #[cfg(test)]
     pub fn submit(&mut self, from: &str, ip: &str, seen_days: u32, sealed: &[u8], now: u64) -> Result<StoredLetter, Refuse> {
-        if sealed.is_empty() || sealed.len() > MAX_BOX {
+        self.submit_with(from, ip, seen_days, sealed, &[], now)
+    }
+
+    /// 🖼️ `submit`처럼 하되 봉인 사진(`photo`, 빈 것 = 없음)도 둠. 사진도 같은 한도를 셈 (사진만 따로 세지 않음).
+    /// 사진 파일을 못 쓰면 편지는 사진 없이 둠 (`photo_save_fail`을 적음)
+    pub fn submit_with(&mut self, from: &str, ip: &str, seen_days: u32, sealed: &[u8], photo: &[u8], now: u64) -> Result<StoredLetter, Refuse> {
+        if sealed.is_empty() || sealed.len() > MAX_BOX || photo.len() > MAX_PHOTO {
             return Err(Refuse::Size);
         }
         if self.data.blocked.contains(from) {
@@ -183,10 +208,62 @@ impl Mailbox {
         }
         self.data.sent.push(Sent { key: from.to_string(), ip: ip.to_string(), at: now });
         self.data.next_id += 1;
-        let letter = StoredLetter { id: self.data.next_id, at: now, from: from.to_string(), read: false, done: false, rejected: false, private: false, r#box: proto::to_hex(sealed) };
+        let id = self.data.next_id;
+        let img = if !photo.is_empty() && self.put_photo(id, photo) { photo.len() as u32 } else { 0 };
+        let letter = StoredLetter { id, at: now, from: from.to_string(), read: false, done: false, rejected: false, private: false, r#box: proto::to_hex(sealed), img };
         self.data.letters.push(letter.clone());
         self.dirty = true;
         Ok(letter)
+    }
+
+    /// 🖼️ 봉인 사진을 파일(또는 메모리)에 둠. 못 쓰면 false
+    fn put_photo(&mut self, id: u64, photo: &[u8]) -> bool {
+        let Some(dir) = &self.photo_dir else {
+            self.photos.insert(id, photo.to_vec());
+            return true;
+        };
+        let started = std::time::Instant::now();
+        let r = std::fs::create_dir_all(dir).and_then(|_| write_private(&dir.join(format!("{id}.bin")), photo));
+        if let Err(e) = r {
+            screenpet_log::log!(Error, "mail", "photo_save_fail", "id" => id, "took_ms" => started.elapsed().as_millis(), "err" => e);
+            return false;
+        }
+        true
+    }
+
+    /// 🖼️ 편지 `id`의 봉인 사진 (편지가 없거나 사진이 없거나 파일이 없거나 크기가 틀리면 None)
+    pub fn photo(&self, id: u64) -> Option<Vec<u8>> {
+        let img = self.data.letters.iter().find(|l| l.id == id)?.img as usize;
+        if img == 0 {
+            return None;
+        }
+        let bytes = match &self.photo_dir {
+            Some(dir) => std::fs::read(dir.join(format!("{id}.bin"))).ok()?,
+            None => self.photos.get(&id)?.clone(),
+        };
+        (bytes.len() == img && img <= MAX_PHOTO).then_some(bytes)
+    }
+
+    /// 🖼️ 없어진 편지들의 사진을 지움 (파일은 없어도 됨)
+    fn drop_photos(&mut self, ids: &[u64]) {
+        for id in ids {
+            self.photos.remove(id);
+            if let Some(dir) = &self.photo_dir {
+                let _ = std::fs::remove_file(dir.join(format!("{id}.bin")));
+            }
+        }
+    }
+
+    /// 🖼️ 사진 폴더에서 남은 편지의 사진이 아닌 파일을 지움 (저장 사이에 꺼졌거나 손으로 넣은 것)
+    fn prune_photos(&self) {
+        let Some(dir) = &self.photo_dir else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let keep: BTreeSet<String> = self.data.letters.iter().filter(|l| l.img > 0).map(|l| format!("{}.bin", l.id)).collect();
+        for e in entries.flatten() {
+            if !e.file_name().to_str().is_some_and(|n| keep.contains(n)) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
     }
 
     /// 모든 편지를 최신 먼저 돌려줌
@@ -267,6 +344,9 @@ impl Mailbox {
         let before = self.data.letters.len();
         self.data.letters.retain(|l| l.id != id);
         let gone = self.data.letters.len() != before;
+        if gone {
+            self.drop_photos(&[id]);
+        }
         self.dirty |= gone;
         self.prune_board();
         gone
@@ -275,6 +355,8 @@ impl Mailbox {
     /// 이제부터 `key`를 거절하고 그 편지를 지움 (지운 수를 돌려줌)
     pub fn block(&mut self, key: &str) -> usize {
         let before = self.data.letters.len();
+        let theirs: Vec<u64> = self.data.letters.iter().filter(|l| l.from == key).map(|l| l.id).collect();
+        self.drop_photos(&theirs);
         self.data.letters.retain(|l| l.from != key);
         self.data.blocked.insert(key.to_string());
         self.dirty = true;
@@ -338,19 +420,23 @@ impl Mailbox {
         self.dirty = true;
     }
 
-    /// `letters.json`, 없으면 `.bak`, 없으면 빈 편지함을 읽음 (편지를 잃을 수는 있어도 릴레이는 시작함)
+    /// `letters.json`, 없으면 `.bak`, 없으면 빈 편지함을 읽음 (편지를 잃을 수는 있어도 릴레이는 시작함).
+    /// 🖼️ 사진은 `PHOTO_DIR`에서 (남은 편지의 것이 아닌 파일은 지움)
     pub fn load(dir: &Path) -> Mailbox {
+        let photo_dir = Some(dir.join(PHOTO_DIR));
+        let mut m = Mailbox { photo_dir, ..Mailbox::default() };
         for name in [LETTERS_FILE.to_string(), format!("{LETTERS_FILE}.bak")] {
             if let Ok(bytes) = std::fs::read(dir.join(&name)) {
                 if let Ok(data) = serde_json::from_slice::<Data>(&bytes) {
-                    let mut m = Mailbox { data, dirty: false };
+                    m.data = data;
                     m.prune_board();
-                    return m;
+                    break;
                 }
                 screenpet_log::log!(Error, "mail", "load_fail", "file" => name);
             }
         }
-        Mailbox::default()
+        m.prune_photos();
+        m
     }
 
     /// `relay.json`처럼 씀: 비공개 임시 파일, 옛 파일은 `.bak`으로 두고 이름 바꾸기
@@ -473,6 +559,55 @@ mod tests {
         let old = br#"{"next_id":1,"letters":[{"id":1,"at":5,"from":"a","read":true,"box":"00"}]}"#;
         std::fs::write(dir.join(LETTERS_FILE), old).unwrap();
         assert!(!Mailbox::load(&dir).list()[0].done);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_photo_rides_with_its_letter_and_goes_with_it() {
+        let mut m = mb();
+        let photo = vec![7u8; 5000];
+        let l = m.submit_with("k1", "1.2.3.4", 2, b"x", &photo, T).unwrap();
+        assert_eq!(l.img, 5000);
+        assert_eq!(m.photo(l.id), Some(photo.clone()));
+        assert_eq!(m.submit_with("k1", "1.2.3.4", 2, b"x", &vec![1; MAX_PHOTO + 1], T), Err(Refuse::Size), "a photo too big");
+        let plain = m.submit("k1", "1.2.3.4", 2, b"x", T).unwrap();
+        assert_eq!((plain.img, m.photo(plain.id)), (0, None));
+        assert_eq!(m.photo(999), None);
+        assert!(m.delete(l.id));
+        assert_eq!(m.photo(l.id), None, "deleted with its letter");
+        let l = m.submit_with("evil", "1.2.3.5", 2, b"x", &photo, T).unwrap();
+        m.block("evil");
+        assert_eq!(m.photo(l.id), None, "blocked with its sender");
+    }
+
+    #[test]
+    fn photos_live_in_their_own_files_and_survive_a_restart() {
+        let dir = tmp_dir("photo");
+        let mut m = Mailbox::load(&dir);
+        let photo = vec![9u8; MAX_PHOTO];
+        let id = m.submit_with("a", "1.0.0.1", 2, b"x", &photo, T).unwrap().id;
+        let gone = m.submit_with("b", "1.0.0.2", 2, b"x", &photo, T).unwrap().id;
+        let bytes = m.snapshot().unwrap();
+        assert!(bytes.len() < 4096, "letters.json stays small: {}", bytes.len());
+        Mailbox::save(&dir, &bytes).unwrap();
+        let file = dir.join(PHOTO_DIR).join(format!("{id}.bin"));
+        assert_eq!(std::fs::read(&file).unwrap(), photo);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        assert!(m.delete(gone));
+        assert!(!dir.join(PHOTO_DIR).join(format!("{gone}.bin")).exists(), "the file goes with the letter");
+        Mailbox::save(&dir, &m.snapshot().unwrap()).unwrap();
+        // 편지 없는 사진 파일(손으로 넣었거나 저장 사이에 꺼짐)은 시작할 때 지움
+        std::fs::write(dir.join(PHOTO_DIR).join("77.bin"), b"orphan").unwrap();
+        let back = Mailbox::load(&dir);
+        assert_eq!(back.photo(id), Some(photo));
+        assert!(!dir.join(PHOTO_DIR).join("77.bin").exists());
+        // 파일이 없어진 사진은 없음으로
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(Mailbox::load(&dir).photo(id), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

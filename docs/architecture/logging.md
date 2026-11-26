@@ -32,6 +32,7 @@
 | took_ms | 걸린 밀리초 (느린 길: 저장, 날씨, 편지 저장, 다운로드, 앱 업데이트) |
 | err | 짧은 오류 글. 경로 낱말은 `<path>`로 바뀌고 160자에서 잘림 |
 | n, bytes | 개수, 바이트 |
+| img | 🖼️ 편지에 붙은 봉인 사진 바이트 수 (0 = 없음, 내용은 안 적음) |
 | friend, to, from, owner, via | 친구 설치 id(앱)·키(릴레이) 앞 8자 |
 | reason | 고정 낱말 까닭 (`idle`, `rate`, `not_friends` …) |
 
@@ -94,7 +95,9 @@
 | route | `channel_open` | INFO | conn peer to ch | 채널 열림 |
 | route | `channel_fail` | WARN | conn peer to reason | `not_friends`, `offline`, `busy`, `self`, `bad_key` |
 | route | `channel_cut` | WARN | conn peer ch reason | 넘기다 닫음: `rate`(속도·대역폭), `queue`(받는 쪽 큐 참) |
-| mail | `letter_in` | INFO | conn peer id bytes took_ms | 건의 편지 받고 저장 (내용 없음, took_ms = 저장) |
+| mail | `letter_in` | INFO | conn peer id bytes img took_ms | 건의 편지 받고 저장 (내용 없음, `img` = 🖼️ 봉인 사진 바이트 수·0이면 없음, took_ms = 저장) |
+| mail | `letter_img` | INFO | conn peer id bytes | 🖼️ 독자가 편지 사진을 받음 (크기만 — 0이면 없음) |
+| mail | `photo_save_fail` | ERROR | id took_ms err | 🖼️ `letter-photos/<id>.bin` 쓰기 실패 (편지는 사진 없이 둠) |
 | mail | `letter_refused` | WARN | conn peer reason | `daily`, `ip`, `new`, `global`, `full`, `size`, `blocked` |
 | mail | `letters_list` | INFO | conn peer n | 독자가 편지함을 받음 |
 | mail | `mail_edit` | INFO | conn peer op id took_ms | 독자 편집: `read`, `done`, `reject`, `private`, `delete`, `block`(id 0) |

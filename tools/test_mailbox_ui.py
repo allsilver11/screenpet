@@ -16,7 +16,7 @@ NET = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
 BUILD = (ROOT / "src-tauri" / "build.rs").read_text(encoding="utf-8")
 CAPS = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))
 
-COMMANDS = ("mailbox_state", "mailbox_read", "mailbox_delete", "mailbox_block", "mailbox_done", "mailbox_reject", "mailbox_private", "mailbox_close")
+COMMANDS = ("mailbox_state", "mailbox_read", "mailbox_delete", "mailbox_block", "mailbox_done", "mailbox_reject", "mailbox_private", "mailbox_photo", "mailbox_close")
 
 
 def test_the_mailbox_opens_from_the_board_item_only_with_a_developer_key():
@@ -85,3 +85,27 @@ def test_the_developer_can_tick_letters_as_done():
     assert 'invoke("mailbox_done", { id: l.id, done: box.checked })' in JS or 'invoke("mailbox_done", { id: l.id, done: check.checked })' in JS
     assert ".letter.done" in HTML, "acted-on letters are dimmed"
     assert "pub done: bool" in RS and "NetInput::MailboxDone(id, done)" in RS
+
+
+# ---- 🖼️ 편지에 붙은 사진 (개발자 창에만, 공개 건의함에는 없음) ----
+
+BOARD_JS = (UI / "board.js").read_text(encoding="utf-8")
+BOARD_HTML = (UI / "board.html").read_text(encoding="utf-8")
+
+
+def test_photos_are_fetched_on_demand_and_opened_with_the_developer_secret():
+    assert "letter::open_photo(" in RS and "pub photo: bool" in RS
+    assert "NetInput::MailboxPhoto(id)" in RS and "net.mailbox_photo(id)" in NET
+    assert 'invoke("mailbox_photo", { id: l.id })' in JS and 'listen("mailbox-photo"' in JS
+    assert HTML.index('src="photo.js"') < HTML.index('src="mailbox.js"')
+
+
+def test_photo_bytes_are_checked_again_in_the_window():
+    # MIME은 머리 바이트로 다시 보고(webp/jpeg만), 크기 한도, Blob URL로만 보임 (HTML 없이)
+    assert "photoKind(bytes) !== p.kind" in JS and "PHOTO_MAX_BYTES" in JS
+    assert "innerHTML" not in JS
+
+
+def test_the_public_board_never_shows_photos():
+    for text in (BOARD_JS, BOARD_HTML):
+        assert "photo" not in text and "<img" not in text and "createObjectURL" not in text

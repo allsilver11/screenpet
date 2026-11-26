@@ -465,6 +465,23 @@ fn frames_are_limited_to_64k() {
 }
 
 #[test]
+fn only_a_signed_in_photo_letter_may_be_a_big_text() {
+    let relay = start(Limits::default());
+    let big = "ab".repeat(100 * 1024);
+    let mut pre = Client::raw(&relay);
+    pre.send(&json!({"t": "letter", "box": "00", "img": big}));
+    assert_eq!(pre.closed(2.0), Some(Some("too_large".into())), "not signed in");
+    let (mut a, _) = Client::login(&relay, &key(), "aaaa", &[]);
+    a.send(&json!({"t": "letter", "box": "00", "img": big}));
+    assert_eq!(a.expect("letter_refused", 2.0)["reason"], "new", "read and answered (a brand-new install may not send yet)");
+    a.send(&json!({"t": "friends", "keys": [big]}));
+    assert_eq!(a.closed(2.0), Some(Some("too_large".into())), "any other big text");
+    let (mut b, _) = Client::login(&relay, &key(), "bbbb", &[]);
+    b.send(&json!({"t": "letter", "box": "00", "img": "ab".repeat(screenpet_proto::MAX_LETTER_TEXT / 2)}));
+    assert_eq!(b.closed(2.0), Some(Some("too_large".into())), "over the photo letter cap");
+}
+
+#[test]
 fn friend_list_is_capped_at_50() {
     let relay = start(Limits::default());
     let (ka, kb) = (key(), key());
@@ -1403,7 +1420,7 @@ fn stats_reports_are_answered_once_a_day_on_a_v4_relay() {
     cfg.weather_fetch = Some(std::sync::Arc::new(|_: &screenpet_relay::weather::Place| Err("off".into())));
     let relay = Relay::start(cfg).unwrap();
     let (mut a, _) = Client::login(&relay, &key(), "a", &[]);
-    assert_eq!(a.challenge["v"], 4, "apps send stats only to v4 relays");
+    assert!(a.challenge["v"].as_u64().unwrap() >= 4, "apps send stats only to v4+ relays");
     let day = screenpet_proto::pet_stats::day_string(screenpet_proto::pet_stats::utc_day(screenpet_relay::store::unix_now()));
     let report = json!({"t": "stats_report", "report": {"day": day, "v": "0.7.4", "kept": ["cat"], "chosen": {"cat": 1}, "changed": []}});
     a.send(&report);

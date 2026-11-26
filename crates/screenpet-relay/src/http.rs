@@ -111,9 +111,11 @@ fn forwarded_ip(headers: &HashMap<String, String>) -> Option<IpAddr> {
     value.trim().parse::<IpAddr>().ok().map(|ip| ip.to_canonical())
 }
 
-/// 릴레이 WebSocket 설정임: 메시지·프레임 크기를 채널 머리 + `MAX_FRAME`으로 제한함
+/// 릴레이 WebSocket 설정임: 메시지·프레임 크기를 채널 머리 + `MAX_FRAME`과 🖼️ 사진 편지(`MAX_LETTER_TEXT`) 중 큰 것으로 제한함.
+/// 친구 프레임은 `conn`이 여전히 `HEADER + MAX_FRAME`으로, 큰 텍스트는 인증한 연결의 `letter`만 받음
 pub(crate) fn ws_config() -> WebSocketConfig {
-    WebSocketConfig::default().max_message_size(Some(HEADER + MAX_FRAME)).max_frame_size(Some(HEADER + MAX_FRAME))
+    let max = (HEADER + MAX_FRAME).max(crate::proto::MAX_LETTER_TEXT);
+    WebSocketConfig::default().max_message_size(Some(max)).max_frame_size(Some(max))
 }
 
 /// 연결 하나를 처리함: 머리를 읽고 경로별로 상태 확인·WebSocket·다운로드·404로 보냄. `conn` = accept에서 받은 연결 번호

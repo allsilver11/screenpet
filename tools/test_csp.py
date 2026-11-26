@@ -31,11 +31,17 @@ def test_scripts_do_not_need_eval(script):
     assert not re.search(r"""\.on(error|load|click)\s*=\s*["'`]""", js)
 
 
+# 🖼️ 건의 사진만 스크립트가 만든 같은 출처 Blob URL로 그림을 읽고 보임 (img-src 'self' blob:)
+BLOB_OK = {"photo.js", "feedback.js", "mailbox.js"}
+
+
 def test_nothing_is_loaded_from_outside_the_app():
     # img-src·connect-src는 앱 안 파일만이다: 원격 주소·data:·blob:을 쓰면 정책도 함께 고친다
     for f in [*PAGES, *SCRIPTS, UI / "style.css", UI / "form.css"]:
         text = f.read_text(encoding="utf-8").replace("http://www.w3.org/2000/svg", "")
-        assert not re.search(r"https?://|\bdata:|\bblob:|\basset:|convertFileSrc|createObjectURL|toDataURL", text), f.name
+        assert not re.search(r"https?://|\bdata:|\bblob:|\basset:|convertFileSrc|toDataURL", text), f.name
+        if f.name not in BLOB_OK:
+            assert "createObjectURL" not in text, f.name
 
 
 # 고칠 땐 앱을 띄워 창마다 확인한다 — 잘못되면 창이 빈 채로 뜨고 어떤 테스트도 잡지 못한다
@@ -44,7 +50,8 @@ POLICY = {
     "script-src": "'self'",
     # 글자 style 속성·<style> (창마다 있다). Tauri가 style-src에 nonce를 넣으면 'unsafe-inline'이 무시되므로 그것만 끈다
     "style-src": "'self' 'unsafe-inline'",
-    "img-src": "'self'",
+    # blob: = 🖼️ 건의 사진 (ui/photo.js가 고른 그림을 풀어 줄이고, 미리보기·개발자 창이 그 바이트를 보임). data:·원격 그림은 그대로 막힘
+    "img-src": "'self' blob:",
     # ipc: / http://ipc.localhost = invoke (macOS·Windows), 'self' = pet.json fetch
     "connect-src": "'self' ipc: http://ipc.localhost",
     "object-src": "'none'",

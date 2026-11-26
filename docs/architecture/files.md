@@ -56,7 +56,7 @@ crates/
 │   ├── src/relay.rs        릴레이 클라이언트 (wss, 채널, 친구 코드, 편지·건의함·날씨)
 │   ├── src/devices.rs      📱 연결된 기기 (코드 연결, 비밀 S, 노는 쪽 고르기)
 │   ├── src/ladder.rs       사다리 commit–reveal 상태 기계
-│   ├── src/letter.rs       💌 Noise_N 봉인 편지, DEV_KEY
+│   ├── src/letter.rs       💌 Noise_N 봉인 편지, DEV_KEY, 🖼️ 같은 세션으로 이어 봉인한 사진
 │   ├── src/board.rs        📮 이름 가리기·첫 줄 요약
 │   ├── examples/dev_key.rs 개발자 편지 키 쌍 만들기
 │   ├── examples/ladder_bot.rs 사다리 시험용 봇
@@ -156,6 +156,7 @@ ui/
 ├── <창>.html + <창>.js      창 하나에 한 쌍: index(펫), house, pair, code, name, link, size, letter, ladder,
 │                            weather, trail, timeline, object, vehicle, postit, dodge, sleigh, feedback,
 │                            mailbox, board, help, prop
+├── photo.js                 🖼️ 건의 사진 줄이기(긴 변 640px·120 KiB, WebP→JPEG)·형식 확인 (feedback·mailbox 창)
 ├── common.js, pager.js, doodle.js   공용 스크립트 (trail 창에는 web.js·batsignal.js·magic.js·snitch.js도 — ✨ 결투·사슴·뱀·서리·🥚 용알·🐉 아기 용·🔥 모닥불·🪄 지팡이·💡 루모스 · 🕷️ 거미집·🦇 박쥐 신호·🟡 스니치)
 ├── style.css, form.css, list.css    공용 스타일 (폼 창은 form.css를 같이 씀 — test_csp.py가 확인)
 ├── pets/<species>/          동물 그림 18종

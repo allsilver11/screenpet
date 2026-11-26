@@ -66,6 +66,12 @@
   - 앱이 `Noise_N_25519_ChaChaPoly_BLAKE2s`(프롤로그 `screenpet-letter/1`)로 `letter::DEV_KEY`에 봉인. 본문 1000자, 봉인 ≤ 8 KiB.
   - 개발자 비밀키는 개발자 컴퓨터 `config.json`의 `dev_key`에만. 다른 사용자의 설정에는 그 필드가 직렬화되지 않음. 저장소에는 공개키만 있음. 새 쌍: `cargo run -p screenpet-net --example dev_key`.
   - 편지 목록·표시·삭제·차단은 릴레이 `control.json`의 `mailbox_readers`에 있는 설치 키만 (`admin mailbox-reader add|remove`). 아니면 조용히 무시.
+- 🖼️ 사진 한 장 (v5 릴레이):
+  - 앱 창(`ui/photo.js`)이 canvas로 다시 인코딩함: 긴 변 ≤ 640px, WebP(못 쓰면 JPEG) 품질 0.8부터 0.5까지, 안 들면 크기를 0.75배씩 — 결과 ≤ 120 KiB(`MAX_IMAGE`), 아니면 거절. 다시 인코딩하므로 EXIF·위치 같은 메타데이터가 없음. 원본은 20 MiB·4천만 픽셀까지만 읽음.
+  - 백엔드(`src-tauri/src/feedback.rs` `decode_photo`)가 다시 봄: 엄격한 base64, ≤ `MAX_IMAGE`, WebP/JPEG 머리 바이트.
+  - 봉인: 편지 봉투(Noise_N 핸드셰이크, 사진 크기 `img`를 말함) 뒤 **같은 세션의 전송 메시지**로 60 000바이트씩 이어 봉인 (`letter::seal_letter`). 사진은 그 편지에만 열리고, 바꾸거나 자르거나 순서를 바꾸거나 다른 편지 사진을 붙이면 `open_photo`가 None. 사진 없는 봉투는 옛 모양 그대로 (옛 앱·옛 편지 호환).
+  - 릴레이: 봉인 사진 ≤ `MAX_IMG_SEALED`(120 KiB + 256)만, `letter-photos/<id>.bin`(0600)에 따로 — `letters.json`은 작게 남음. 편지 지우기·차단·시작 때 남은 사진 파일 정리. 편지 한도가 그대로 사진 한도 (키당 하루 5, 전체 하루 50, 편지함 200통 → 사진은 최대 약 24 MiB). 독자만 `letter_img`로 받음 (새 인증 없는 길 없음). 사진 바이트는 어디에도 적지 않음 (크기만).
+  - 개발자 창(`ui/mailbox.js`): 백엔드가 비밀키로 연 사진만, 다시 머리 바이트가 `kind`(webp/jpeg)와 맞고 ≤ 120 KiB일 때 Blob URL로. 📮 공개 건의함에는 사진이 없음.
 - 코드: `crates/screenpet-net/src/letter.rs:11` `DEV_KEY`, `:22-24`, `:124` `seal`, `:136` `open`; `src-tauri/src/feedback.rs` `seal`; `crates/screenpet-core/src/config.rs:56` `dev_key`; `crates/screenpet-relay/src/hub/mail.rs:17` `is_reader`, `:79` `reader_edit`; `control.rs:30` `mailbox_readers`.
 
 ---
@@ -130,7 +136,7 @@
 | 메시지 폭주 | 연결당 200 msg/s·512 KiB/s, 채널 방향당 20 프레임/s, `friends` 0.5/s(burst 30), `weather_want` 0.1/s(burst 5) | `conn.rs:24-37`, `:203`, `:284` |
 | 대역폭 | 주소 2 MiB/s(재연결해도 안 참), 전체 16 MiB/s(네트워크 몫 1/16), 천장 32 MiB/s | `hub/routing.rs:6`, `:102` `bandwidth_allows` |
 | 느린 수신자 | 연결 큐 2 MiB 넘으면 채널 닫음, 5초 안 움직이면 `slow`. 전체 큐 256 MiB | `hub/routing.rs:120` `enqueue_frame` |
-| 크기 | 텍스트 16 KiB, 프레임 4 + 65535, 요청 머리 8 KiB·5 s | `conn.rs:157-160`, `http.rs:16-18`, `:113` |
+| 크기 | 텍스트 16 KiB (🖼️ 인증한 연결의 `letter`만 `MAX_LETTER_TEXT` ≈ 258 KiB까지 — 인증 전·다른 메시지는 `too_large`), 프레임 4 + 65535, 요청 머리 8 KiB·5 s | `conn.rs` `Message::Text`, `http.rs` `ws_config`, `:113` |
 | 편지 | 연결당 분당 3, 키당 하루 **5**, 주소당 10, 전체 50, 2일 이상 본 키만, 200통에서 거절(옛 편지는 안 버림), 차단 키 거절 | `conn.rs:26`, `mailbox.rs:14-28`, `:156` `submit` |
 | 건의함 조회 | 0.5초 간격 | `Limits::board_gap` |
 | 다운로드 | 이름 허용 목록, 심볼릭 링크 거절, 동시 8·주소당 2, 30분·64 KiB/s·10초 정지 컷 | `downloads.rs:35`, `:127`, `:144` |
@@ -164,12 +170,12 @@
 
 ## 7. 웹뷰 강화
 
-- **CSP** (`src-tauri/tauri.conf.json` `app.security.csp`): `default-src 'self'`, `script-src 'self'`(인라인·eval 없음), `style-src 'self' 'unsafe-inline'`, `img-src 'self'`, `connect-src 'self' ipc: http://ipc.localhost`, `object-src 'none'`, `base-uri 'none'`. 원격 주소 없음.
+- **CSP** (`src-tauri/tauri.conf.json` `app.security.csp`): `default-src 'self'`, `script-src 'self'`(인라인·eval 없음), `style-src 'self' 'unsafe-inline'`, `img-src 'self' blob:`, `connect-src 'self' ipc: http://ipc.localhost`, `object-src 'none'`, `base-uri 'none'`. 원격 주소 없음.
   - 시험: `tools/test_csp.py` — 인라인 스크립트·핸들러 없음, eval 불필요, `https?://`·`data:`·`blob:`·`asset:`·`createObjectURL`·`toDataURL` 안 씀, 정책이 검토한 그대로인지.
 - **창별 권한** (`src-tauri/capabilities/default.json`): 모든 창은 이벤트 듣기만(`core:event:allow-listen/unlisten`), 그 밖엔 창마다 자기 명령만 (예: `mailbox` 창만 `allow-mailbox-*`, `board` 창은 `allow-board-list/close`). `core:default` 넓은 권한은 어느 창도 없음.
   - 시험: `tools/test_capabilities.py` — 페이지가 부르는 명령 ⊆ 그 창 권한, Tauri API는 명령·듣기만, `core:default` 없음, `build.rs` 명령 목록 = `generate_handler!`.
 - **사용자 글은 `textContent`로만**: 편지함·건의함·쪽지 (`ui/mailbox.js:3`, `ui/board.js:3`, `src-tauri/src/objects.rs` 모듈 설명). `innerHTML`은 `ui/main.js:142`의 고정 문자열 하나뿐.
-- **`data:`/`blob:` 없음**: 📌 앱 아이콘 그림도 창 초기화 스크립트로 넘겨 canvas에 그림 (CSP 그대로) (`src-tauri/src/objects.rs` 모듈 설명).
+- **`data:` 없음, `blob:`은 그림만**: 📌 앱 아이콘 그림은 창 초기화 스크립트로 넘겨 canvas에 그림 (`src-tauri/src/objects.rs` 모듈 설명). 🖼️ 건의 사진은 줄이려면 그림으로 풀어야 하고(사용자가 고른 파일 → `new Image()`), 미리보기·개발자 창도 그 바이트를 보여야 해서 `img-src`에만 `blob:`을 더함 — 스크립트가 만든 같은 출처 Blob만 되고, 원격·`data:` 그림과 스크립트·프레임은 그대로 막힘 (`ui/photo.js`).
 
 ---
 

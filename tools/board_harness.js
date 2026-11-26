@@ -19,6 +19,10 @@ class El {
     this.checked = false;
     this.type = "";
     this._text = "";
+    this.attrs = {};
+  }
+  removeAttribute(k) {
+    if (k === "src") this.src = undefined;
   }
   set innerHTML(_) {
     throw new Error("innerHTML used");
@@ -72,11 +76,15 @@ const window = {
     webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async (ev, fn) => (listeners[ev] = fn) }) },
   },
 };
-const ctx = vm.createContext({ window, document, console, setTimeout, clearTimeout, Date, Math, String, Promise });
+// 🖼️ Blob URL은 가짜 (만든 것·놓은 것을 셈)
+let blobs = 0;
+const revoked = [];
+const URL = { createObjectURL: () => `blob:test/${++blobs}`, revokeObjectURL: (u) => revoked.push(u) };
+const ctx = vm.createContext({ window, document, console, setTimeout, clearTimeout, Date, Math, String, Promise, URL, Blob, atob, btoa, Uint8Array, Map, Set });
 // 페이지에 처음 적힌 #empty 글자
 const page = fs.readFileSync(path.join(UI, mode === "board" ? "board.html" : "mailbox.html"), "utf8");
 document.getElementById("empty").textContent = page.match(/<div id="empty">([^<]*)<\/div>/)[1];
-for (const f of ["pager.js", mode === "board" ? "board.js" : "mailbox.js"]) {
+for (const f of mode === "board" ? ["pager.js", "board.js"] : ["pager.js", "photo.js", "mailbox.js"]) {
   vm.runInContext(fs.readFileSync(path.join(UI, f), "utf8"), ctx, { filename: f });
 }
 
@@ -150,6 +158,30 @@ const snap = () => ({ cards: cards().map((c) => c.textContent), classes: cards()
     out.marked = snap();
     send([]);
     out.none = snap();
+    // 🖼️ 사진 붙은 편지
+    const imgs = () => byId.list.all((e) => e.tag === "img").map((e) => e.src);
+    const photoText = () => byId.list.all((e) => e.className === "photo").map((e) => e.textContent);
+    const photo = {};
+    invoked.length = 0;
+    send([letter(3, { photo: true }), letter(2)]);
+    send([letter(3, { photo: true }), letter(2)]);
+    photo.asked = invoked.filter(([c]) => c === "mailbox_photo");
+    photo.loading = photoText();
+    const webp = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 1, 2, 3]).toString("base64");
+    listeners["mailbox-photo"]({ payload: { id: 9, kind: "image/webp", data: webp } }); // 청하지 않은 편지: 무시
+    listeners["mailbox-photo"]({ payload: { id: 3, kind: "image/webp", data: webp } });
+    photo.shown = imgs();
+    byId.list.all((e) => e.tag === "img")[0].fire("click");
+    photo.bigShown = byId.viewer.style.display === "flex";
+    byId.viewer.fire("click");
+    photo.bigAfterClose = byId.viewer.style.display === "flex";
+    send([letter(4, { photo: true })]);
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64");
+    listeners["mailbox-photo"]({ payload: { id: 4, kind: "image/webp", data: png } });
+    photo.bad = photoText()[0];
+    photo.badImgs = imgs().length;
+    photo.revoked = revoked.slice();
+    out.photo = photo;
   }
   console.log(JSON.stringify(out));
 })();

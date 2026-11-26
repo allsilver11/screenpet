@@ -5,8 +5,10 @@
 //! 트레이 "📮 건의함"은 개발자 컴퓨터에서 이 창을, 다른 컴퓨터에서는 공개 목록을 엶.
 //! 새 편지가 오면 (그리고 앱을 켤 때 안 읽은 편지 몇 통은) 보낸 사람 펫이 💌을 들고 걸어 들어옴 —
 //! 네트워크와 상관없는 로컬 손님 (visit_id "letter-<id>", guest_left는 숫자 visit_id만 친구에게 알림).
+//! 🖼️ 사진 붙은 편지는 창이 그 편지를 보일 때 사진을 청함 (v5 릴레이 `letter_img`). 그 편지의 봉투와 비밀키로 열어
+//! (`letter::open_photo`) WebP/JPEG만 base64로 창에 줌 (`mailbox-photo`). 사진 바이트는 적지 않음.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -70,6 +72,29 @@ pub struct LetterView {
     pub version: String,
     /// OS
     pub os: String,
+    /// 🖼️ 사진이 붙어 있음 (편지가 그렇다고 하고 릴레이에도 있음 — 사진은 `mailbox_photo`로 따로)
+    pub photo: bool,
+}
+
+/// 🖼️ 창이 받는 사진 하나 (`mailbox-photo`). 못 열었으면 kind·data가 None
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PhotoView {
+    /// 편지 id
+    pub id: u64,
+    /// `image/webp` 또는 `image/jpeg`
+    pub kind: Option<String>,
+    /// 사진 바이트, 표준 base64
+    pub data: Option<String>,
+}
+
+/// 🖼️ 편지 `id`의 봉투(`sealed_letter`)와 봉인 사진으로 창에 보일 사진을 만듦 (못 열면 kind·data 없음)
+pub fn photo_view(id: u64, sealed_letter: Option<&[u8]>, sealed_photo: Option<&[u8]>, secret: [u8; 32]) -> PhotoView {
+    let bytes = sealed_letter.zip(sealed_photo).and_then(|(l, p)| letter::open_photo(l, p, &secret));
+    let kind = bytes.as_deref().and_then(letter::photo_kind);
+    match (bytes, kind) {
+        (Some(b), Some(k)) => PhotoView { id, kind: Some(k.to_string()), data: Some(screenpet_core::icon::base64(&b)) },
+        _ => PhotoView { id, kind: None, data: None },
+    }
 }
 
 /// 창이 처음 열릴 때 읽는 편지 목록
@@ -104,6 +129,7 @@ pub fn view_of(item: &MailItem, secret: [u8; 32]) -> LetterView {
         species: l.species,
         stage: l.stage,
         style: l.style,
+        photo: opened.as_ref().is_some_and(|o| o.img > 0) && item.img > 0,
         version: l.version,
         os: l.os,
     }
@@ -123,6 +149,8 @@ pub struct Mailbox {
     visits: Vec<(u64, String, Instant)>,
     /// 📮 건의함에 올라간 (또는 방금 올린) 편지 id
     published: HashSet<u64>,
+    /// 🖼️ 편지 id → 봉투 (사진을 열 때 씀, 사진 붙은 편지만)
+    boxes: HashMap<u64, Vec<u8>>,
 }
 
 impl Mailbox {
@@ -146,6 +174,7 @@ impl Mailbox {
     pub fn on_list(&mut self, app: &AppHandle, items: Vec<MailItem>, on_board: Vec<u64>) -> Vec<Digest> {
         let Some(secret) = self.secret else { return Vec::new() };
         self.letters = items.iter().map(|i| view_of(i, secret)).collect();
+        self.boxes = items.into_iter().filter(|i| i.img > 0).map(|i| (i.id, i.sealed)).collect();
         self.published = on_board.into_iter().collect();
         if !self.listed {
             self.listed = true;
@@ -171,9 +200,24 @@ impl Mailbox {
         if v.ok {
             self.queue.push_back(v.id);
         }
+        if v.photo {
+            self.boxes.insert(item.id, item.sealed);
+        }
         self.letters.insert(0, v);
         self.publish(app);
         unpublished(&self.letters[..1], &self.published)
+    }
+
+    /// 🖼️ 이 편지의 사진을 릴레이에 청할 만함 (개발자 컴퓨터이고 사진 붙은 편지임)
+    pub fn wants_photo(&self, id: u64) -> bool {
+        self.enabled() && self.letters.iter().any(|l| l.id == id && l.photo)
+    }
+
+    /// 🖼️ 릴레이가 준 봉인 사진(없으면 None)을 열어 창에 보냄
+    pub fn on_photo(&self, app: &AppHandle, id: u64, sealed: Option<Vec<u8>>) {
+        let Some(secret) = self.secret else { return };
+        let view = photo_view(id, self.boxes.get(&id).map(Vec::as_slice), sealed.as_deref(), secret);
+        let _ = app.emit_to(MAILBOX_LABEL, "mailbox-photo", view);
     }
 
     /// 읽음 (릴레이에도 알렸음) — 그 편지를 든 펫은 이제 감
@@ -218,6 +262,7 @@ impl Mailbox {
         self.letters.retain(|l| l.id != id);
         self.queue.retain(|q| *q != id);
         self.published.remove(&id);
+        self.boxes.remove(&id);
         self.publish(app);
     }
 
@@ -227,6 +272,7 @@ impl Mailbox {
         self.letters.retain(|l| l.from != from);
         self.queue.retain(|q| !gone.contains(q));
         self.published.retain(|p| !gone.contains(p));
+        self.boxes.retain(|b, _| !gone.contains(b));
         self.publish(app);
     }
 
@@ -355,6 +401,14 @@ pub fn mailbox_private(window: WebviewWindow, state: tauri::State<AppState>, id:
     }
 }
 
+/// 🖼️ 편지 사진 청하기 (NetInput::MailboxPhoto) — 답은 `mailbox-photo`
+#[tauri::command]
+pub fn mailbox_photo(window: WebviewWindow, state: tauri::State<AppState>, id: u64) {
+    if mine(&window) {
+        state.send(Input::Net(NetInput::MailboxPhoto(id)));
+    }
+}
+
 /// 편지 지우기 (NetInput::MailboxDelete)
 #[tauri::command]
 pub fn mailbox_delete(window: WebviewWindow, state: tauri::State<AppState>, id: u64) {
@@ -390,7 +444,7 @@ mod tests {
         let secret = screenpet_net::letter::secret_from_hex(&secret_hex).unwrap();
         let public: [u8; 32] = (0..32).map(|i| u8::from_str_radix(&public_hex[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<_>>().try_into().unwrap();
         let sealed = letter::seal(&letter::Letter { text: "안녕".into(), name: "단니".into(), ..Default::default() }, &public).unwrap();
-        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, rejected: true, private: true, sealed };
+        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, rejected: true, private: true, sealed, img: 0 };
         let v = view_of(&item, secret);
         assert!(v.ok);
         assert_eq!((v.text.as_str(), v.name.as_str()), ("안녕", "단니"));
@@ -401,7 +455,29 @@ mod tests {
     }
 
     fn view(id: u64, ok: bool, name: &str, text: &str) -> LetterView {
-        LetterView { id, at: id, from: String::new(), read: false, done: false, rejected: false, private: false, ok, text: text.into(), name: name.into(), species: "cat".into(), stage: String::new(), style: String::new(), version: "0.6.3".into(), os: "windows".into() }
+        LetterView { id, at: id, from: String::new(), read: false, done: false, rejected: false, private: false, ok, text: text.into(), name: name.into(), species: "cat".into(), stage: String::new(), style: String::new(), version: "0.6.3".into(), os: "windows".into(), photo: false }
+    }
+
+    #[test]
+    fn a_photo_opens_only_with_its_own_letter_and_the_secret() {
+        let (secret_hex, public_hex) = letter::new_dev_keypair();
+        let secret = letter::secret_from_hex(&secret_hex).unwrap();
+        let public = letter::secret_from_hex(&public_hex).unwrap();
+        let mut photo = b"RIFF\0\0\0\0WEBP".to_vec();
+        photo.extend([1, 2, 3]);
+        let s = letter::seal_letter(&letter::Letter { text: "성 사진".into(), ..Default::default() }, Some(&photo), &public).unwrap();
+        let (with, sealed_photo) = s.photo.clone().unwrap();
+        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, rejected: false, private: false, sealed: with.clone(), img: sealed_photo.len() as u32 };
+        assert!(view_of(&item, secret).photo);
+        assert!(!view_of(&MailItem { img: 0, ..item.clone() }, secret).photo, "the relay has no photo for it");
+        assert!(!view_of(&MailItem { sealed: s.plain.clone(), ..item.clone() }, secret).photo, "the letter itself says no photo");
+        let shown = photo_view(3, Some(&with), Some(&sealed_photo), secret);
+        assert_eq!((shown.id, shown.kind.as_deref(), shown.data.clone()), (3, Some("image/webp"), Some(screenpet_core::icon::base64(&photo))));
+        let none = PhotoView { id: 3, kind: None, data: None };
+        assert_eq!(photo_view(3, Some(&with), None, secret), none, "the relay sent nothing");
+        assert_eq!(photo_view(3, None, Some(&sealed_photo), secret), none, "no such letter here");
+        assert_eq!(photo_view(3, Some(&with), Some(&sealed_photo), [7; 32]), none, "another key");
+        assert_eq!(photo_view(3, Some(&s.plain), Some(&sealed_photo), secret), none, "not its letter");
     }
 
     #[test]

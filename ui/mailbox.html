@@ -15,6 +15,10 @@
       .row .status { display: flex; gap: 8px; margin-right: auto; }
       .row { display: flex; gap: 6px; justify-content: flex-end; }
       .row button { font-size: 11px; padding: 2px 8px; }
+      .photo { font-size: 11px; color: #8a7a66; margin: 4px 0; text-align: left; }
+      .photo .thumb { max-width: 160px; max-height: 120px; border: 1px solid #c9b79f; border-radius: 6px; cursor: zoom-in; display: block; }
+      #viewer { position: fixed; inset: 0; background: rgba(40, 32, 24, 0.85); display: none; align-items: center; justify-content: center; cursor: zoom-out; z-index: 10; }
+      #viewer-img { max-width: 96%; max-height: 96%; border-radius: 6px; background: #fff; }
     </style>
   </head>
   <body>
@@ -25,8 +29,10 @@
     <div id="buttons">
       <button id="close">닫기</button>
     </div>
+    <div id="viewer"><img id="viewer-img" alt="붙인 사진 크게" /></div>
     <script src="common.js"></script>
     <script src="pager.js"></script>
+    <script src="photo.js"></script>
     <script src="mailbox.js"></script>
   </body>
 </html>

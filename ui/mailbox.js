@@ -1,6 +1,8 @@
 // 📮 개발자 건의함 (개발자 비밀키가 있는 컴퓨터만 — spec 2026-11-10-feedback-mailbox §5, 예전 "📬 편지함").
-// 목록은 `mailbox-state`([{id, at, from, read, done, rejected, private, ok, text, name, species, stage, style, version, os}], 최신순)로 옴.
+// 목록은 `mailbox-state`([{id, at, from, read, done, rejected, private, ok, text, name, species, stage, style, version, os, photo}], 최신순)로 옴.
 // 보낸 사람이 쓴 글은 모두 textContent로만 넣음 (HTML로 해석하지 않음). 열면 읽음, ✅ 반영함 / 🙅 반려 (하나만), 🔒 비공개 (공개 건의함에서 숨기기 — 여기선 그대로 보이고 표시만), 지우기, 이 사람 막기.
+// 🖼️ 사진 붙은 편지(photo)는 그 쪽이 보일 때 한 번 `mailbox_photo`로 청하고, `mailbox-photo`({id, kind, data})가 오면 머리 바이트·크기를 다시 보고
+// 같은 출처 Blob URL로만 보임 (photo.js). 누르면 크게, 다시 누르거나 Esc면 닫힘. 공개 건의함에는 사진이 없음.
 // 공개 건의함(board.js)과 같은 쪽 넘기기 (pager.js, 5개씩): 읽거나 지우거나 막아도 보던 쪽에 남고, 그 쪽이 비면 한 쪽 앞으로.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
@@ -9,6 +11,10 @@ const listEl = document.getElementById("list");
 const emptyEl = document.getElementById("empty");
 let letters = [];
 let page = 1;
+// 🖼️ 편지 id → {state: "loading" | "ok" | "bad", url}
+const photos = new Map();
+const viewerEl = document.getElementById("viewer");
+const viewerImg = document.getElementById("viewer-img");
 const pager = makePager(document.getElementById("pager"), (p) => {
   page = p;
   render();
@@ -32,9 +38,69 @@ function when(at) {
   return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// 새 목록이 와도 보던 쪽 그대로 (비었으면 clampPage가 한 쪽 앞으로)
+// 새 목록이 와도 보던 쪽 그대로 (비었으면 clampPage가 한 쪽 앞으로). 없어진 편지의 사진 URL은 놓음
 function update(next) {
   letters = next;
+  const keep = new Set(next.filter((l) => l.photo).map((l) => l.id));
+  for (const [id, p] of photos) {
+    if (keep.has(id)) continue;
+    if (p.url) URL.revokeObjectURL(p.url);
+    photos.delete(id);
+  }
+  render();
+}
+
+// 🖼️ 사진을 크게 보임 / 닫음
+function showBig(url) {
+  viewerImg.src = url;
+  viewerEl.style.display = "flex";
+}
+function hideBig() {
+  viewerEl.style.display = "none";
+  viewerImg.removeAttribute("src");
+}
+
+// 🖼️ 편지 밑 사진 칸 (처음 보이면 청함, 못 받았으면 눌러서 다시)
+function photoEl(l) {
+  const wrap = el("div", "photo");
+  let p = photos.get(l.id);
+  if (!p) {
+    p = { state: "loading" };
+    photos.set(l.id, p);
+    invoke("mailbox_photo", { id: l.id });
+  }
+  if (p.state === "ok") {
+    const img = el("img", "thumb");
+    img.src = p.url;
+    img.alt = "붙인 사진";
+    img.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showBig(p.url);
+    });
+    wrap.append(img);
+  } else if (p.state === "loading") {
+    wrap.textContent = "🖼️ 사진 불러오는 중…";
+  } else {
+    wrap.textContent = "🖼️ 사진을 볼 수 없어요";
+    wrap.addEventListener("click", (e) => {
+      e.stopPropagation();
+      photos.delete(l.id);
+      render();
+    });
+  }
+  return wrap;
+}
+
+// 🖼️ 백엔드가 연 사진: 청한 편지의 것만, WebP/JPEG 머리 바이트가 kind와 맞고 한도 안일 때만 보임
+function onPhoto(p) {
+  if (!p || !photos.has(p.id)) return;
+  const known = p.kind === "image/webp" || p.kind === "image/jpeg";
+  const bytes = known && typeof p.data === "string" ? base64ToBytes(p.data) : null;
+  if (!bytes || bytes.length > PHOTO_MAX_BYTES || photoKind(bytes) !== p.kind) {
+    photos.set(p.id, { state: "bad" });
+  } else {
+    photos.set(p.id, { state: "ok", url: URL.createObjectURL(new Blob([bytes], { type: p.kind })) });
+  }
   render();
 }
 
@@ -104,7 +170,9 @@ function render() {
       invoke("mailbox_reject", { id: l.id, rejected: reject.checked });
     });
     row.append(status, del, block);
-    box.append(meta, text, row);
+    box.append(meta, text);
+    if (l.photo) box.append(photoEl(l));
+    box.append(row);
     // 열어 보면 읽음 (안 읽은 편지만)
     if (!l.read) box.addEventListener("click", () => invoke("mailbox_read", { id: l.id }), { once: true });
     listEl.append(box);
@@ -113,11 +181,15 @@ function render() {
 
 document.getElementById("close").addEventListener("click", () => invoke("mailbox_close"));
 window.addEventListener("contextmenu", (e) => e.preventDefault());
+viewerEl.addEventListener("click", hideBig);
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") invoke("mailbox_close");
+  if (e.key !== "Escape") return;
+  if (viewerEl.style.display === "flex") hideBig();
+  else invoke("mailbox_close");
 });
 
 (async () => {
   await here.listen("mailbox-state", (e) => update(e.payload));
+  await here.listen("mailbox-photo", (e) => onPhoto(e.payload));
   update(await invoke("mailbox_state"));
 })();

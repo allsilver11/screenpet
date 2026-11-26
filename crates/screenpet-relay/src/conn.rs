@@ -26,6 +26,10 @@ const ACTIVE_FOR: Duration = Duration::from_secs(2);
 const REDEEMS_PER_CONN_PER_MIN: usize = 10;
 /// 연결당 분당 건의 편지 시도 수 (진짜 하루 한도는 편지함이 지킴)
 const LETTERS_PER_CONN_PER_MIN: usize = 3;
+/// 🖼️ 연결당 사진 요청 속도 (독자만 답받음): 초에 하나, 한 번에 한 쪽(5통)과 조금 더
+const PHOTOS_PER_SEC: f64 = 1.0;
+/// 사진 요청 몰아 받기
+const PHOTOS_BURST: f64 = 10.0;
 /// 연결당 "새 코드" 요청 수 상한
 const NEW_CODES_PER_CONN: usize = 5;
 /// 연결당 `friends` 갱신 속도임: 앱은 목록이 바뀔 때 하나 보내고 저장 데이터를 다시 씀.
@@ -122,6 +126,7 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
     // 📊 이 연결이 보고한 날들, 합계 요청 속도
     let mut stats_days: Vec<String> = Vec::new();
     let mut stats_gets = Bucket::new(STATS_GETS_PER_SEC, STATS_GETS_BURST);
+    let mut photo_gets = Bucket::new(PHOTOS_PER_SEC, PHOTOS_BURST);
     let reason: String = 'conn: loop {
         let ending = if hub.stopping() {
             Some("shutdown")
@@ -194,7 +199,9 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
             }
             match msg {
                 Message::Text(t) => {
-                    if t.len() > lim.max_text {
+                    // 🖼️ `max_text`보다 큰 것은 인증한 연결의 사진 편지만 (`MAX_LETTER_TEXT`까지)
+                    let big = t.len() > lim.max_text;
+                    if big && (authed.is_none() || t.len() > proto::MAX_LETTER_TEXT) {
                         refuse(&mut ws, "too_large");
                         break bad(cid, peer, "too_large");
                     }
@@ -202,6 +209,10 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                         refuse(&mut ws, "bad_message");
                         break bad(cid, peer, "bad_json");
                     };
+                    if big && !matches!(cm, ClientMsg::Letter { .. }) {
+                        refuse(&mut ws, "too_large");
+                        break bad(cid, peer, "too_large");
+                    }
                     match (&authed, cm) {
                         (None, ClientMsg::Auth { id, key, mac, friends, cnonce }) => {
                             match authenticate(&hub, &nonce, &id, &key, &mac) {
@@ -282,7 +293,7 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                                     }
                                 }
                                 ClientMsg::Ping => Some(ServerMsg::Pong),
-                                ClientMsg::Letter { r#box } => {
+                                ClientMsg::Letter { r#box, img } => {
                                     // A few tries a minute per connection; the real limits are in the mailbox
                                     let now = Instant::now();
                                     while letters_sent.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60)) {
@@ -293,7 +304,15 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                                         Some(ServerMsg::LetterRefused { reason: "daily".into() })
                                     } else {
                                         letters_sent.push_back(now);
-                                        hub.letter(&a.key, a.conn, &ip, &r#box)
+                                        hub.letter_with(&a.key, a.conn, &ip, &r#box, &img)
+                                    }
+                                }
+                                ClientMsg::LetterImg { id } => {
+                                    if photo_gets.take(1.0) {
+                                        hub.letter_img(&a.key, a.conn, id)
+                                    } else {
+                                        limited(cid, peer, "letter_img");
+                                        None
                                     }
                                 }
                                 ClientMsg::Letters => hub.letters(&a.key, a.conn),

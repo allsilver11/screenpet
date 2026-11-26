@@ -18,7 +18,7 @@ KEYS = {
     "reason", "ch", "to", "from", "friend", "owner", "via", "old_conn", "old_ip", "new", "friends", "online", "channels",
     "up_s", "what", "op", "id", "page", "changed", "cmd", "ok", "place", "wmo", "file", "head", "limit", "bind", "relay_pub",
     "proxies", "weather", "src", "port", "status", "version", "visit", "side", "with_note", "with_reply", "carried", "kind",
-    "day", "kept", "on",
+    "day", "kept", "on", "img",
 }
 # 이 키들의 값은 앞 8자로 줄여야 함
 SHORT_KEYS = {"peer", "to", "from", "friend", "owner", "via"}

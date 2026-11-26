@@ -264,8 +264,11 @@ pub enum NetEvent {
     /// 친구 링크가 끊김 (유예 뒤)
     Disconnected { id: String },
     /// [`Net::send_letter`]에 대한 릴레이 답임: `Err`는 그 까닭(`daily`, `ip`, `new`, `global`, `full`, `size`, `blocked`)
-    /// 또는 `offline`, `busy`, `timeout`
-    LetterSent { result: Result<(), String> },
+    /// 또는 `offline`, `busy`, `timeout`. 🖼️ `photo_dropped` = 옛 릴레이라 사진은 빼고 글만 보냈음
+    LetterSent { result: Result<(), String>, photo_dropped: bool },
+    /// 🖼️ [`Net::mailbox_photo`]의 답: 편지 `id`의 봉인 사진 (없거나 지워졌거나 깨졌으면 None).
+    /// 앱이 [`letter::open_photo`]로 엶
+    LetterPhoto { id: u64, sealed: Option<Vec<u8>> },
     /// 개발자 편지함 전체 (릴레이가 편지함 독자로 둔 설치에만), 최신 먼저, 그리고 이미 📮 공개 건의함에 올라간 편지 id들
     /// (v3 전 릴레이면 빈 목록)
     Mailbox { letters: Vec<letter::MailItem>, board: Vec<u64> },
@@ -1057,15 +1060,21 @@ impl Net {
         relay::new_code(&self.shared)
     }
 
-    /// 💌 봉인된 건의 편지([`letter::seal`])를 릴레이의 개발자 편지함으로 보냄. 답은 [`NetEvent::LetterSent`]로 옴
-    pub fn send_letter(&self, sealed: &[u8]) -> bool {
+    /// 💌 봉인된 건의 편지([`letter::seal_letter`])를 릴레이의 개발자 편지함으로 보냄. 답은 [`NetEvent::LetterSent`]로 옴.
+    /// 🖼️ 사진은 v5 릴레이에만 붙음 (옛 릴레이면 글만, `photo_dropped`)
+    pub fn send_letter(&self, sealed: &letter::Sealed) -> bool {
         match &self.shared.relay {
             Some(c) => relay::send_letter(&self.shared, c, sealed),
             None => {
-                self.shared.emit(NetEvent::LetterSent { result: Err("offline".into()) });
+                self.shared.emit(NetEvent::LetterSent { result: Err("offline".into()), photo_dropped: false });
                 false
             }
         }
+    }
+
+    /// 🖼️ 📬 편지 `id`의 봉인 사진을 청함 (독자만, v5 릴레이만 — 아니면 `false`). 답은 [`NetEvent::LetterPhoto`]로 옴
+    pub fn mailbox_photo(&self, id: u64) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_photo(c, id))
     }
 
     /// ☀️ 이제부터 기본 지역(도시 id, 예: "yongin", `screenpet_core::real_weather::Place::id`)의 날씨를 원함.

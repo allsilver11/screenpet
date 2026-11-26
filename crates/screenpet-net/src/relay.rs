@@ -67,7 +67,7 @@ const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 /// 와이어 편지를 편지함 항목으로 바꿈. 봉인 hex가 깨졌으면 None임
 fn mail_item(l: WireLetter) -> Option<crate::letter::MailItem> {
     let sealed = noise::hex_vec(&l.r#box)?;
-    Some(crate::letter::MailItem { id: l.id, at: l.at, from: l.from, read: l.read, done: l.done, rejected: l.rejected && !l.done, private: l.private, sealed })
+    Some(crate::letter::MailItem { id: l.id, at: l.at, from: l.from, read: l.read, done: l.done, rejected: l.rejected && !l.done, private: l.private, sealed, img: l.img })
 }
 
 /// 독자가 청하는 편지함 변경임
@@ -98,6 +98,9 @@ pub(crate) const BOARD_RELAY_VERSION: u32 = screenpet_proto::BOARD_MIN_VERSION;
 
 /// 📊 `stats_report`·`stats_get`을 받는 가장 낮은 릴레이 버전
 pub(crate) const STATS_RELAY_VERSION: u32 = screenpet_proto::STATS_MIN_VERSION;
+
+/// 🖼️ 사진 붙은 편지와 `letter_img`를 받는 가장 낮은 릴레이 버전 (옛 릴레이에는 글만 보냄)
+pub(crate) const IMAGE_RELAY_VERSION: u32 = screenpet_proto::IMAGE_MIN_VERSION;
 
 /// 📊 모으는 날 수 상한 (릴레이는 90일을 둠 — 넘으면 더 청하지 않음)
 const STATS_MAX_DAYS: usize = 120;
@@ -184,6 +187,8 @@ struct Inner {
     sent_friends: Vec<String>,
     /// 릴레이 답을 기다리는 건의 편지 (언제부터)
     letter: Option<Instant>,
+    /// 🖼️ 기다리는 편지의 사진을 옛 릴레이라 빼고 보냈음
+    letter_dropped: bool,
     /// 이 연결에서 릴레이의 프로토콜 버전
     relay_v: u32,
     /// ☀️ 날씨를 원하는 지역 id (None = 릴레이 기본, 용인)
@@ -405,13 +410,14 @@ pub(crate) fn redeem(shared: &Arc<Shared>, code: &str, pet: &str) {
     }
 }
 
-/// 봉인된 건의 편지를 보냄. 답은 `NetEvent::LetterSent`로 옴 (못 보내면 바로: `offline`, `busy`)
-pub(crate) fn send_letter(shared: &Shared, client: &RelayClient, sealed: &[u8]) -> bool {
+/// 봉인된 건의 편지를 보냄. 답은 `NetEvent::LetterSent`로 옴 (못 보내면 바로: `offline`, `busy`).
+/// 🖼️ 사진은 v5 릴레이에만 붙임 — 옛 릴레이는 큰 메시지에 연결을 끊으므로 사진 없는 봉투를 보내고 `photo_dropped`로 알림
+pub(crate) fn send_letter(shared: &Shared, client: &RelayClient, sealed: &crate::letter::Sealed) -> bool {
     let fail = |reason: &str| {
-        shared.emit(NetEvent::LetterSent { result: Err(reason.into()) });
+        shared.emit(NetEvent::LetterSent { result: Err(reason.into()), photo_dropped: false });
         false
     };
-    {
+    let msg = {
         let mut inner = client.inner();
         if !inner.connected {
             return fail("offline");
@@ -420,12 +426,23 @@ pub(crate) fn send_letter(shared: &Shared, client: &RelayClient, sealed: &[u8]) 
             return fail("busy");
         }
         inner.letter = Some(Instant::now());
-    }
-    if !client.send(None, Out::Text(json(&ClientMsg::Letter { r#box: noise::to_hex(sealed) }))) {
+        let takes_photos = inner.relay_v >= IMAGE_RELAY_VERSION;
+        inner.letter_dropped = sealed.photo.is_some() && !takes_photos;
+        match &sealed.photo {
+            Some((with, photo)) if takes_photos => ClientMsg::Letter { r#box: noise::to_hex(with), img: noise::to_hex(photo) },
+            _ => ClientMsg::Letter { r#box: noise::to_hex(&sealed.plain), img: String::new() },
+        }
+    };
+    if !client.send(None, Out::Text(json(&msg))) {
         client.inner().letter = None;
         return fail("offline");
     }
     true
+}
+
+/// 🖼️ 편지 `id`의 봉인 사진을 청함 (v5 릴레이, 독자면 `NetEvent::LetterPhoto`로 답이 옴). 옛 릴레이면 `false`
+pub(crate) fn mailbox_photo(client: &RelayClient, id: u64) -> bool {
+    client.inner().relay_v >= IMAGE_RELAY_VERSION && client.send(None, Out::Text(json(&ClientMsg::LetterImg { id })))
 }
 
 /// 편지함 전체를 청함 (독자면 `NetEvent::Mailbox`로 답이 옴)
@@ -727,9 +744,9 @@ fn connect(url: &str, stop: &AtomicBool) -> io::Result<Ws> {
 
 /// 폴링 소켓 위의 WebSocket 업그레이드임: 읽기가 시간 초과돼도 계속함
 fn ws_handshake<S: Read + Write>(url: &str, stream: S, stop: &AtomicBool, limit: Duration) -> io::Result<WebSocket<S>> {
-    let cfg = tungstenite::protocol::WebSocketConfig::default()
-        .max_message_size(Some(MAX_FRAME + 4))
-        .max_frame_size(Some(MAX_FRAME + 4));
+    // 🖼️ `letter_img` 답(hex 봉인 사진)이 들어오게 사진 편지 크기까지 (친구 프레임은 여전히 MAX_FRAME으로 검사함)
+    let max = (MAX_FRAME + 4).max(screenpet_proto::MAX_LETTER_TEXT);
+    let cfg = tungstenite::protocol::WebSocketConfig::default().max_message_size(Some(max)).max_frame_size(Some(max));
     let deadline = Instant::now() + limit;
     let mut attempt = tungstenite::client::client_with_config(url, stream, Some(cfg));
     loop {
@@ -819,7 +836,7 @@ fn disconnected(shared: &Shared, client: &RelayClient) {
         inner.sent_friends.clear();
         let pending: Vec<String> = inner.pending.drain().map(|(_, p)| p.peer_id).collect();
         if inner.letter.take().is_some() {
-            shared.emit(NetEvent::LetterSent { result: Err("offline".into()) });
+            shared.emit(NetEvent::LetterSent { result: Err("offline".into()), photo_dropped: false });
         }
         if inner.board_wait.take().is_some() | inner.board_want.take().is_some() {
             shared.emit(NetEvent::Board { result: Err("offline".into()) });
@@ -951,7 +968,8 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
             }
             Ok(Message::Binary(b)) => {
                 last_recv = Instant::now();
-                if b.len() > 4 {
+                // 친구 프레임은 여전히 4 + MAX_FRAME까지 (WS 받기 한도는 🖼️ 사진 답 때문에 더 큼)
+                if b.len() > 4 && b.len() <= 4 + MAX_FRAME {
                     let ch = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
                     let tx = client.channels().get(&ch).cloned();
                     if let Some(tx) = tx {
@@ -1075,7 +1093,7 @@ fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
             None
         };
         if inner.letter.take_if(|t| now.duration_since(*t) > REQUEST_TIMEOUT).is_some() {
-            shared.emit(NetEvent::LetterSent { result: Err("timeout".into()) });
+            shared.emit(NetEvent::LetterSent { result: Err("timeout".into()), photo_dropped: false });
         }
         if inner.board_wait.take_if(|t| now.duration_since(*t) > REQUEST_TIMEOUT).is_some() {
             shared.emit(NetEvent::Board { result: Err("timeout".into()) });
@@ -1197,14 +1215,22 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
         }
         ServerMsg::Close { ch } => client.drop_channel(ch),
         ServerMsg::LetterOk => {
-            if client.inner().letter.take().is_some() {
-                shared.emit(NetEvent::LetterSent { result: Ok(()) });
+            let mut inner = client.inner();
+            if inner.letter.take().is_some() {
+                let photo_dropped = std::mem::take(&mut inner.letter_dropped);
+                drop(inner);
+                shared.emit(NetEvent::LetterSent { result: Ok(()), photo_dropped });
             }
         }
         ServerMsg::LetterRefused { reason } => {
             if client.inner().letter.take().is_some() {
-                shared.emit(NetEvent::LetterSent { result: Err(reason.chars().take(16).collect()) });
+                shared.emit(NetEvent::LetterSent { result: Err(reason.chars().take(16).collect()), photo_dropped: false });
             }
+        }
+        // 🖼️ 봉인 사진 (hex가 깨졌거나 너무 크거나 비었으면 없음)
+        ServerMsg::LetterImg { id, img } => {
+            let sealed = (!img.is_empty() && img.len() <= 2 * crate::letter::MAX_IMG_SEALED).then(|| noise::hex_vec(&img)).flatten();
+            shared.emit(NetEvent::LetterPhoto { id, sealed });
         }
         ServerMsg::Letters { items, board } => {
             let letters = items.into_iter().filter_map(mail_item).collect();
@@ -1382,7 +1408,7 @@ mod tests {
     /// 잠깐 기다린 뒤 편지 관련 이벤트를 모음
     fn letter_events(events: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<NetEvent> {
         std::thread::sleep(Duration::from_millis(20));
-        events.try_iter().filter(|e| matches!(e, NetEvent::LetterSent { .. } | NetEvent::Mailbox { .. } | NetEvent::LetterArrived { .. })).collect()
+        events.try_iter().filter(|e| matches!(e, NetEvent::LetterSent { .. } | NetEvent::Mailbox { .. } | NetEvent::LetterArrived { .. } | NetEvent::LetterPhoto { .. })).collect()
     }
 
     /// 잠깐 기다린 뒤 날씨 이벤트를 모음
@@ -1507,18 +1533,55 @@ mod tests {
         assert!(serde_json::from_str::<ServerMsg>(r#"{"t":"weather","place":"yongin","code":-1,"at":1}"#).is_err());
     }
 
+    /// 사진 없는 봉인 편지
+    fn plain(b: &[u8]) -> crate::letter::Sealed {
+        crate::letter::Sealed { plain: b.to_vec(), photo: None }
+    }
+
+    #[test]
+    fn a_photo_goes_only_to_a_relay_that_takes_photos() {
+        let (net, events, client, out) = letter_rig();
+        let sealed = crate::letter::Sealed { plain: vec![1], photo: Some((vec![2], vec![3, 4])) };
+        client.inner().relay_v = screenpet_proto::IMAGE_MIN_VERSION;
+        assert!(send_letter(&net.shared, &client, &sealed));
+        assert_eq!(sent_text(&out), vec![r#"{"t":"letter","box":"02","img":"0304"}"#.to_string()]);
+        on_message(&net.shared, &client, 1, ServerMsg::LetterOk);
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Ok(()), photo_dropped: false }]));
+        // 옛 릴레이는 큰 메시지에 연결을 끊음: 글만 보내고 앱에 알림
+        client.inner().relay_v = screenpet_proto::IMAGE_MIN_VERSION - 1;
+        assert!(send_letter(&net.shared, &client, &sealed));
+        assert_eq!(sent_text(&out), vec![r#"{"t":"letter","box":"01"}"#.to_string()]);
+        on_message(&net.shared, &client, 1, ServerMsg::LetterOk);
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Ok(()), photo_dropped: true }]));
+        // 독자의 사진 청하기도 v5 릴레이에만
+        assert!(!mailbox_photo(&client, 7), "an older relay has no photos");
+        assert!(sent_text(&out).is_empty());
+        client.inner().relay_v = screenpet_proto::IMAGE_MIN_VERSION;
+        assert!(mailbox_photo(&client, 7));
+        assert_eq!(sent_text(&out), vec![r#"{"t":"letter_img","id":7}"#.to_string()]);
+        on_message(&net.shared, &client, 1, ServerMsg::LetterImg { id: 7, img: "0a0b".into() });
+        on_message(&net.shared, &client, 1, ServerMsg::LetterImg { id: 8, img: String::new() });
+        on_message(&net.shared, &client, 1, ServerMsg::LetterImg { id: 9, img: "zz".into() });
+        on_message(&net.shared, &client, 1, ServerMsg::LetterImg { id: 10, img: "00".repeat(crate::letter::MAX_IMG_SEALED + 1) });
+        let got: Vec<(u64, Option<Vec<u8>>)> = letter_events(&events).into_iter().filter_map(|e| if let NetEvent::LetterPhoto { id, sealed } = e { Some((id, sealed)) } else { None }).collect();
+        assert_eq!(got, vec![(7, Some(vec![10, 11])), (8, None), (9, None), (10, None)]);
+        let item = WireLetter { id: 3, at: 1, from: "ab".repeat(32), read: false, done: false, rejected: false, private: false, r#box: "0a".into(), img: 300 };
+        on_message(&net.shared, &client, 1, ServerMsg::LetterNew { item });
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterArrived { item }] if item.img == 300));
+    }
+
     #[test]
     fn a_letter_goes_out_once_and_the_relay_answer_comes_back() {
         let (net, events, client, out) = letter_rig();
-        assert!(send_letter(&net.shared, &client, &[1, 2, 255]));
+        assert!(send_letter(&net.shared, &client, &plain(&[1, 2, 255])));
         assert_eq!(sent_text(&out), vec![r#"{"t":"letter","box":"0102ff"}"#.to_string()]);
-        assert!(!send_letter(&net.shared, &client, &[1]), "one at a time");
-        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "busy"));
+        assert!(!send_letter(&net.shared, &client, &plain(&[1])), "one at a time");
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r), .. }] if r == "busy"));
         on_message(&net.shared, &client, 1, ServerMsg::LetterOk);
-        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Ok(()) }]));
-        assert!(send_letter(&net.shared, &client, &[3]));
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Ok(()), .. }]));
+        assert!(send_letter(&net.shared, &client, &plain(&[3])));
         on_message(&net.shared, &client, 1, ServerMsg::LetterRefused { reason: "daily".into() });
-        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "daily"));
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r), .. }] if r == "daily"));
         on_message(&net.shared, &client, 1, ServerMsg::LetterOk);
         assert!(letter_events(&events).is_empty(), "an answer nobody waits for is dropped");
     }
@@ -1526,21 +1589,21 @@ mod tests {
     #[test]
     fn an_unanswered_letter_times_out_and_a_lost_connection_fails_it() {
         let (net, events, client, _out) = letter_rig();
-        assert!(send_letter(&net.shared, &client, &[1]));
+        assert!(send_letter(&net.shared, &client, &plain(&[1])));
         client.inner().letter = Some(Instant::now() - REQUEST_TIMEOUT - Duration::from_secs(1));
         housekeep(&net.shared, &client, 1);
-        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "timeout"));
-        assert!(send_letter(&net.shared, &client, &[1]));
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r), .. }] if r == "timeout"));
+        assert!(send_letter(&net.shared, &client, &plain(&[1])));
         disconnected(&net.shared, &client);
-        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "offline"));
-        assert!(!send_letter(&net.shared, &client, &[1]), "offline");
-        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "offline"));
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r), .. }] if r == "offline"));
+        assert!(!send_letter(&net.shared, &client, &plain(&[1])), "offline");
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r), .. }] if r == "offline"));
     }
 
     #[test]
     fn the_mailbox_lists_arrives_and_refreshes_when_it_changes() {
         let (net, events, client, out) = letter_rig();
-        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, done: id == 7, rejected: false, private: id == 7, r#box: "0a0b".into() };
+        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, done: id == 7, rejected: false, private: id == 7, r#box: "0a0b".into(), img: 0 };
         on_message(&net.shared, &client, 1, ServerMsg::LetterNew { item: item(7, false) });
         match &letter_events(&events)[..] {
             [NetEvent::LetterArrived { item }] => assert_eq!((item.id, item.at, item.read, item.sealed.clone()), (7, 107, false, vec![10, 11])),

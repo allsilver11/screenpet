@@ -171,10 +171,13 @@ fn a_letter_reaches_the_real_relay_and_a_brand_new_install_is_told_to_wait() {
     let (a, arx) = start_net("aaaa", Net::generate_static_key(), free_udp_port(), free_udp_port(), vec![], &url(&relay));
     code_of(&arx); // 연결됨
     let dev = screenpet_net::letter::dev_key().unwrap();
-    let sealed = screenpet_net::letter::seal(&screenpet_net::letter::Letter { text: "안녕하세요".into(), ..Default::default() }, &dev).unwrap();
+    // 🖼️ 가장 큰 사진을 붙여도 릴레이까지 가서 답을 받음 (연결이 끊기지 않음)
+    let mut photo = b"RIFF\0\0\0\0WEBP".to_vec();
+    photo.resize(screenpet_net::letter::MAX_IMAGE, 7);
+    let sealed = screenpet_net::letter::seal_letter(&screenpet_net::letter::Letter { text: "안녕하세요".into(), ..Default::default() }, Some(&photo), &dev).unwrap();
     assert!(a.send_letter(&sealed));
     match wait_for(&arx, 5.0, |e| matches!(e, NetEvent::LetterSent { .. })) {
-        Some(NetEvent::LetterSent { result }) => assert_eq!(result, Err("new".to_string())),
+        Some(NetEvent::LetterSent { result, .. }) => assert_eq!(result, Err("new".to_string())),
         other => panic!("no answer: {other:?}"),
     }
     // 편지함은 읽는 설치로 등록된 것만 — 아니면 대답이 없음

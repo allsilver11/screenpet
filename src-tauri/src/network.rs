@@ -125,8 +125,10 @@ pub enum NetInput {
     /// 편지 창 "보내기": "놀러 보내기"처럼 보내고 Visit에 편지를 실음. 누구에게인지는 창을 연 쪽(Network::lettering)이 앎.
     /// 답장 창이었으면(Network::replying) 그 손님이 답장을 들고 집으로 감
     SubmitLetter(String),
-    /// 💌 개발자에게 건의하기 창의 "보내기" (feedback.rs)
-    SendFeedback(String),
+    /// 💌 개발자에게 건의하기 창의 "보내기" (feedback.rs): 글과 🖼️ 다시 확인한 사진 (있으면)
+    SendFeedback(String, Option<Vec<u8>>),
+    /// 🖼️ 📮 개발자 건의함 창이 편지 사진을 청함 (mailbox.rs)
+    MailboxPhoto(u64),
     /// 📮 개발자 건의함 창: 읽음 · 반영 · 반려 · 지우기 · 보낸 사람 막기 (mailbox.rs)
     MailboxRead(u64),
     MailboxDone(u64, bool),
@@ -1639,15 +1641,22 @@ impl Network {
                     self.mailbox.block_local(app, &from);
                 }
             }
-            NetInput::SendFeedback(text) => {
-                // 개발자 열쇠로 봉해 릴레이 편지함에 맡김 — 결과는 NetEvent::LetterSent로 (못 보내면 바로 알림)
+            NetInput::SendFeedback(text, photo) => {
+                // 개발자 열쇠로 봉해 릴레이 편지함에 맡김 — 결과는 NetEvent::LetterSent로 (못 보내면 바로 알림).
+                // 🖼️ 사진은 v5 릴레이에만 붙음 (옛 릴레이면 글만 가고 photo_dropped)
                 let letter = crate::feedback::letter_for(&text, &self.name, &slots[0]);
-                match (&self.net, crate::feedback::seal(&letter)) {
-                    (_, None) => crate::feedback::result(app, Err("size".into())),
-                    (None, _) => crate::feedback::result(app, Err("offline".into())),
+                match (&self.net, crate::feedback::seal_with(&letter, photo.as_deref())) {
+                    (_, None) => crate::feedback::result(app, Err("size".into()), false),
+                    (None, _) => crate::feedback::result(app, Err("offline".into()), false),
                     (Some(net), Some(sealed)) => {
                         net.send_letter(&sealed);
                     }
+                }
+            }
+            NetInput::MailboxPhoto(id) => {
+                // 🖼️ 못 청하면 (연결 없음, 옛 릴레이) 바로 "볼 수 없어요"
+                if self.mailbox.wants_photo(id) && !self.net.as_ref().is_some_and(|net| net.mailbox_photo(id)) {
+                    self.mailbox.on_photo(app, id, None);
                 }
             }
             NetInput::EditLetter(id) => {
@@ -1810,13 +1819,15 @@ impl Network {
             }
             // 📊 개발자 펫 통계 창의 합계 (또는 못 받은 이유)
             NetEvent::PetStats { result } => crate::pet_stats::result(app, result),
-            NetEvent::LetterSent { result } => {
+            NetEvent::LetterSent { result, photo_dropped } => {
                 // 보냈으면 내 펫이 만세 (하던 일이 있으면 건너뜀)
                 if result.is_ok() {
                     slots[0].pet.react_to_result(true);
                 }
-                crate::feedback::result(app, result);
+                crate::feedback::result(app, result, photo_dropped);
             }
+            // 🖼️ 📮 개발자 건의함 편지의 봉인 사진 (mailbox.rs가 열어 창에)
+            NetEvent::LetterPhoto { id, sealed } => self.mailbox.on_photo(app, id, sealed),
             NetEvent::Ladder { from, msg } => {
                 let last = self.ladder.on_message(app, &ladder_ctx!(self, config), &slots[0], &from, msg);
                 if let Some(last) = last {

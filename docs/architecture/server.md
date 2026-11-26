@@ -36,7 +36,7 @@ Relay::start (lib.rs:224)
 | 잠금 | 지키는 것 | 규칙 |
 |---|---|---|
 | `state: Mutex<State>` | 접속(`peers`), 채널, grant, 주소별 한도 표, `Control`, 날씨, 설치 `Store` | 거의 모든 일이 이 하나. 접속·채널이 얽혀 나누지 않음 |
-| `mail: Mutex<Mailbox>` | 편지함 | **잎 잠금**: `state` → `mail`은 됨, `mail`을 쥔 채 다른 잠금 금지 |
+| `mail: Mutex<Mailbox>` | 편지함 | **잎 잠금**: `state` → `mail`은 됨, `mail`을 쥔 채 다른 잠금 금지. 🖼️ 사진 편지는 `state`를 놓고 `mail`만 쥔 채 사진 파일을 씀 (`hub/mail.rs` `letter_with`) |
 | `mailbox_save: Mutex<()>` | `letters.json` 쓰기 순서 | `state`를 놓은 뒤에만, 안에서 `mail`만 잠깐 |
 | `stats: Mutex<PetStats>` | 📊 펫 통계 | **잎 잠금**: `state` → `stats`만, `mail`과 같이 안 잡음 |
 | `stats_save: Mutex<()>` | `stats.json` 쓰기 순서 | `state`를 놓은 뒤에만, 안에서 `stats`만 잠깐 |
@@ -86,7 +86,8 @@ Relay::start (lib.rs:224)
 | `relay.key` | 릴레이 X25519 정적 개인키 | hex | 없으면 새로 만듦 (임시 → rename) | `store.rs:429` `load_or_create_key` |
 | `relay.json` (+`.bak`, `.tmp`) | 설치 키 → `{id, friends[], code, code_at, last_seen, active, seen_days}` | JSON | `.bak`, 그래도 안 되면 빈 저장소로 시작 | `store.rs:44` `Install`, `:125` `Store::open` |
 | `control.json` | `registration`, `friendcode`, `relay`, `banned_keys`, `banned_ips`, `mailbox_readers` | JSON | **시작 거부** (차단이 조용히 풀리면 안 됨) | `control.rs:18`, `:47` `load` |
-| `letters.json` (+`.bak`) | 봉인 편지(hex), 상태, 보낸 기록(`sent`), 차단 키, 공개 요약(`board`) | JSON | `.bak`, 그래도 안 되면 빈 편지함 | `mailbox.rs:342` `load`, `:357` `save` |
+| `letters.json` (+`.bak`) | 봉인 편지(hex), 상태, 보낸 기록(`sent`), 차단 키, 공개 요약(`board`), 🖼️ 사진 크기(`img`) | JSON | `.bak`, 그래도 안 되면 빈 편지함 | `mailbox.rs` `load`, `save` |
+| `letter-photos/<id>.bin` | 🖼️ 편지에 붙은 봉인 사진 (릴레이는 못 엶), 편지를 받을 때 씀 (0600, fsync) | 바이트 | 없거나 크기가 틀리면 "사진 없음". 시작할 때 남은 편지 것이 아닌 파일은 지움 | `mailbox.rs` `put_photo`, `photo`, `prune_photos` |
 | `stats.json` | 📊 `days`: 날짜(보낸 앱의 지역 날짜) → `{reports, kept{종류:수}, chosen{종류:수}, changed[{from,to,n}], versions{버전:수}}`, 최근 90일. 그 밖엔 없음: 중복 막기용 키 해시는 날마다 새로 뽑은 비밀(메모리에만)로 만들어 메모리에만 두고 그날이 보고를 받는 4일 동안만 (다시 켜면 잊음 — 그날 두 번 셀 수 있음), `.bak`도 없음. 5분마다(`stats_save_every`)와 끝날 때 한꺼번에 쓰므로 두 시점의 파일을 비교해도 보고 하나가 떼어지지 않고, 오래된 날 지우기도 그때 저장됨 | JSON | 빈 통계로 시작 | `pet_stats.rs` `load`, `save`; `hub/pet_stats.rs` `save_stats` |
 | `admin.sock` | 관리 소켓 (0600) | Unix socket | 시작 때 남은 것 지움 | `admin.rs:45` `bind` |
 | `downloads/` | `latest.json`, `latest.json.sig`, 설치 파일 2개 | 정적 | – | `downloads.rs` |
@@ -153,6 +154,7 @@ Relay::start (lib.rs:224)
 - 속도 표 키 상한 8192, 네트워크당 16 (`hub/limits.rs:69` `MAX_RATE_KEYS`, `:90` `MAX_KEYS_PER_PARENT`).
 - 네트워크당 전체 대역폭 몫 1/16 (`hub/routing.rs:6` `NET_BYTES_SHARE`).
 - 편지함 한도 (`mailbox.rs:14-28`): 키당 하루 5, 주소당 10, 전체 50, 2일 이상 본 키만, 봉인 ≤ 8 KiB, 200통에서 새 편지 거절.
+- 🖼️ 사진 (v5): 편지마다 하나, 봉인 사진 ≤ `MAX_PHOTO`(120 KiB + 256). 같은 편지 한도를 셈 (사진만 따로 세지 않음) → 하루 최대 50장 ≈ 6 MiB, 편지함이 다 차도 200장 ≈ 24 MiB. 사진 편지 텍스트 메시지는 인증한 연결만 `MAX_LETTER_TEXT`(≈ 258 KiB)까지 (`conn.rs`), 독자의 `letter_img`는 연결당 초에 하나(몰아 10).
 - 공개 요약: `board_put` 하나에 ≤ 20, 이름 ≤ 16자, 줄 ≤ 80자, 5개/쪽 (`crates/screenpet-proto/src/board.rs`).
 
 ---

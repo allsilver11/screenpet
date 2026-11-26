@@ -26,7 +26,10 @@
 //! client -> relay   letter {box: hex}          -> letter_ok | letter_refused {reason}
 //!                   (a feedback letter sealed to the developer key; reasons:
 //!                   daily, ip, new, global, full, size, blocked)
+//!                   (v5: + img: hex sealed photo, ≤ MAX_IMG_SEALED; the whole text ≤ MAX_LETTER_TEXT)
 //! client -> relay   letters                    -> letters {items, board}  (mailbox readers only)
+//!                   (v5: items with a photo carry img = its sealed size; the photo itself is not in the list)
+//! client -> relay   letter_img {id}            (v5, readers only) -> letter_img {id, img: hex} ("" = none)
 //! client -> relay   letter_read {id} | letter_delete {id} | letter_block {from} | letter_done {id, done}
 //!                                              (readers only) -> letters_changed to every reader
 //!                   (items carry `done` and, from v3, `rejected`; `letter_done false` clears both)
@@ -84,8 +87,15 @@ pub enum ClientMsg {
     Ping,
     Letter {
         r#box: String,
+        /// 🖼️ 봉인한 사진, hex (v5 릴레이에만 보냄. 없으면 빈 글자이고 와이어에 안 나옴)
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        img: String,
     },
     Letters,
+    /// 🖼️ v5 릴레이에만 보냄 (편지함 독자만 답받음): 편지 `id`의 봉인 사진을 줘
+    LetterImg {
+        id: u64,
+    },
     LetterRead {
         id: u64,
     },
@@ -225,6 +235,12 @@ pub enum ServerMsg {
         item: Letter,
     },
     LettersChanged,
+    /// 🖼️ 편지 `id`의 봉인 사진, hex (독자에게만. 없거나 지워졌으면 빈 글자)
+    LetterImg {
+        id: u64,
+        #[serde(default)]
+        img: String,
+    },
     /// ☀️ 기본 지역 하나의 WMO 날씨 코드, 릴레이가 `at`(유닉스 초)에 받아 옴
     Weather {
         place: String,
@@ -273,6 +289,14 @@ pub struct Letter {
     pub private: bool,
     /// 봉인된 편지, hex
     pub r#box: String,
+    /// 🖼️ 봉인한 사진의 바이트 수 (v5 릴레이, 0 = 사진 없음. 사진은 `letter_img`로 따로 받음)
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub img: u32,
+}
+
+/// 0이면 와이어에 안 씀 (옛 모양 그대로)
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// 개발자가 편지에 남긴 표시: ✅ 반영됨, 🙅 반려됨, 또는 없음

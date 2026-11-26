@@ -31,7 +31,7 @@ fn server_in(json: &str, m: ServerMsg) {
 
 /// 시험용 편지 하나를 만듦
 fn letter(done: bool, rejected: bool, private: bool) -> Letter {
-    Letter { id: 7, at: 1_800_000_000, from: "ab".into(), read: true, done, rejected, private, r#box: "00ff".into() }
+    Letter { id: 7, at: 1_800_000_000, from: "ab".into(), read: true, done, rejected, private, r#box: "00ff".into(), img: 0 }
 }
 
 #[test]
@@ -46,7 +46,10 @@ fn every_client_message() {
     client(ClientMsg::Close { ch: 9 }, r#"{"t":"close","ch":9}"#);
     client(ClientMsg::NewCode, r#"{"t":"new_code"}"#);
     client(ClientMsg::Ping, r#"{"t":"ping"}"#);
-    client(ClientMsg::Letter { r#box: "00ff".into() }, r#"{"t":"letter","box":"00ff"}"#);
+    client(ClientMsg::Letter { r#box: "00ff".into(), img: String::new() }, r#"{"t":"letter","box":"00ff"}"#);
+    // 🖼️ v5: 사진 덩어리는 따로 (없으면 옛 모양 그대로)
+    client(ClientMsg::Letter { r#box: "00ff".into(), img: "0102".into() }, r#"{"t":"letter","box":"00ff","img":"0102"}"#);
+    client(ClientMsg::LetterImg { id: 4 }, r#"{"t":"letter_img","id":4}"#);
     client(ClientMsg::Letters, r#"{"t":"letters"}"#);
     client(ClientMsg::LetterRead { id: 4 }, r#"{"t":"letter_read","id":4}"#);
     client(ClientMsg::LetterDelete { id: 4 }, r#"{"t":"letter_delete","id":4}"#);
@@ -137,6 +140,12 @@ fn every_server_message() {
         r#"{"t":"letter_new","item":{"id":7,"at":1800000000,"from":"ab","read":true,"done":true,"rejected":false,"private":false,"box":"00ff"}}"#,
     );
     server(ServerMsg::LettersChanged, r#"{"t":"letters_changed"}"#);
+    // 🖼️ v5: 사진 붙은 편지는 목록에 봉인 사진 크기만 (사진은 letter_img로 따로)
+    server(
+        ServerMsg::LetterNew { item: Letter { img: 300, ..letter(false, false, false) } },
+        r#"{"t":"letter_new","item":{"id":7,"at":1800000000,"from":"ab","read":true,"done":false,"rejected":false,"private":false,"box":"00ff","img":300}}"#,
+    );
+    server(ServerMsg::LetterImg { id: 7, img: "0102".into() }, r#"{"t":"letter_img","id":7,"img":"0102"}"#);
     server(ServerMsg::Weather { place: "yongin".into(), code: 75, at: 1_800_000_000 }, r#"{"t":"weather","place":"yongin","code":75,"at":1800000000}"#);
     server(
         ServerMsg::BoardPage {
@@ -180,7 +189,7 @@ fn old_relays_messages_still_parse() {
     server_in(r#"{"t":"letters","items":[]}"#, ServerMsg::Letters { items: vec![], board: vec![] });
     server_in(
         r#"{"t":"letter_new","item":{"id":7,"at":1800000000,"from":"ab","box":"00ff"}}"#,
-        ServerMsg::LetterNew { item: Letter { id: 7, at: 1_800_000_000, from: "ab".into(), read: false, done: false, rejected: false, private: false, r#box: "00ff".into() } },
+        ServerMsg::LetterNew { item: Letter { id: 7, at: 1_800_000_000, from: "ab".into(), read: false, done: false, rejected: false, private: false, r#box: "00ff".into(), img: 0 } },
     );
     server_in(
         r#"{"t":"letter_new","item":{"id":7,"at":1800000000,"from":"ab","read":true,"done":true,"box":"00ff"}}"#,
@@ -204,8 +213,13 @@ fn unknown_or_malformed_server_messages_fail() {
 
 #[test]
 fn versions_and_shared_limits() {
-    assert_eq!(screenpet_proto::RELAY_PROTOCOL_VERSION, 4);
-    assert_eq!((screenpet_proto::WEATHER_MIN_VERSION, screenpet_proto::BOARD_MIN_VERSION, screenpet_proto::STATS_MIN_VERSION), (2, 3, 4));
+    assert_eq!(screenpet_proto::RELAY_PROTOCOL_VERSION, 5);
+    assert_eq!((screenpet_proto::WEATHER_MIN_VERSION, screenpet_proto::BOARD_MIN_VERSION, screenpet_proto::STATS_MIN_VERSION, screenpet_proto::IMAGE_MIN_VERSION), (2, 3, 4, 5));
+    // 🖼️ 사진 한 장: 120 KiB, 봉인하면 조금 더, 편지 메시지(hex 두 덩어리)는 그 두 배 남짓
+    use screenpet_proto::{MAX_IMAGE, MAX_IMG_SEALED, MAX_LETTER_TEXT, MAX_SEALED};
+    assert_eq!(MAX_IMAGE, 120 * 1024);
+    assert!(MAX_IMG_SEALED > MAX_IMAGE && MAX_IMG_SEALED <= MAX_IMAGE + 1024);
+    assert!(MAX_LETTER_TEXT >= 2 * (MAX_SEALED + MAX_IMG_SEALED) + 64 && MAX_LETTER_TEXT <= 288 * 1024, "{MAX_LETTER_TEXT}");
     use screenpet_proto::pet_stats as ps;
     assert_eq!((ps::MAX_KEPT, ps::MAX_CHOSEN, ps::MAX_CHANGED, ps::MAX_COUNT, ps::KEEP_DAYS, ps::LATE_DAYS, ps::ACCEPT_DAYS), (8, 16, 32, 20, 90, 2, 3));
     assert!(ps::REPLY_MAX * 2 <= screenpet_proto::MAX_FRAME, "a page of totals stays well under the app's 64 KiB message limit");

@@ -43,24 +43,36 @@ impl Hub {
         took_ms(started)
     }
 
-    /// `key`가 보낸 봉인 편지(hex)를 받음. 독자에게 `letter_new`를 알리고 답을 돌려줌.
-    /// `letter_in`(번호·크기·저장 took_ms)이나 `letter_refused`를 적음. 내용은 안 적음
+    /// `key`가 보낸 봉인 편지(hex)를 받음 (사진 없이)
+    #[cfg(test)]
     pub(crate) fn letter(&self, key: &str, conn: u64, ip: &str, hex: &str) -> Option<ServerMsg> {
+        self.letter_with(key, conn, ip, hex, "")
+    }
+
+    /// `key`가 보낸 봉인 편지(hex)와 🖼️ 봉인 사진(hex, 빈 것 = 없음)을 받음. 독자에게 `letter_new`를 알리고 답을 돌려줌.
+    /// `letter_in`(번호·크기·사진 크기·저장 took_ms)이나 `letter_refused`를 적음. 내용은 안 적음.
+    /// 사진 파일을 쓰는 동안은 상태 잠금을 놓음 (편지함 잠금만)
+    pub(crate) fn letter_with(&self, key: &str, conn: u64, ip: &str, hex: &str, img_hex: &str) -> Option<ServerMsg> {
         let mut stored: Option<u64> = None;
-        let reply = {
+        let seen_days = {
             let st = self.state();
             if !Self::is_current(&st, key, conn) {
                 return None;
             }
-            let sealed = decode_hex(hex);
-            let seen_days = st.store_ref().get(key).map_or(0, |i| i.seen_days);
-            let result = match sealed {
-                Some(b) => self.mail().submit(key, ip, seen_days, &b, unix_now()),
-                None => Err(crate::mailbox::Refuse::Size),
-            };
+            st.store_ref().get(key).map_or(0, |i| i.seen_days)
+        };
+        let photo = if img_hex.is_empty() { Some(Vec::new()) } else { decode_hex(img_hex) };
+        let result = match (decode_hex(hex), photo) {
+            (Some(b), Some(p)) => self.mail().submit_with(key, ip, seen_days, &b, &p, unix_now()),
+            _ => Err(crate::mailbox::Refuse::Size),
+        };
+        let mut img = 0;
+        let reply = {
+            let st = self.state();
             match result {
                 Ok(item) => {
                     stored = Some(item.id);
+                    img = item.img;
                     Self::tell_readers(&st, &ServerMsg::LetterNew { item: item.into() });
                     ServerMsg::LetterOk
                 }
@@ -73,9 +85,22 @@ impl Hub {
         let took = self.save_mailbox();
         let bytes = hex.len() / 2;
         if let Some(id) = stored {
-            log!(Info, "mail", "letter_in", "conn" => Cid(conn), "peer" => short(key), "id" => id, "bytes" => bytes, "took_ms" => took);
+            log!(Info, "mail", "letter_in", "conn" => Cid(conn), "peer" => short(key), "id" => id, "bytes" => bytes, "img" => img, "took_ms" => took);
         }
         Some(reply)
+    }
+
+    /// 🖼️ 편지 `id`의 봉인 사진을 hex로 줌 (독자만, 아니면 None. 없으면 빈 글자). `letter_img`(id·크기)를 적음
+    pub(crate) fn letter_img(&self, key: &str, conn: u64, id: u64) -> Option<ServerMsg> {
+        {
+            let st = self.state();
+            if !Self::is_current(&st, key, conn) || !Self::is_reader(&st, key) {
+                return None;
+            }
+        }
+        let photo = self.mail().photo(id).unwrap_or_default();
+        log!(Info, "mail", "letter_img", "conn" => Cid(conn), "peer" => short(key), "id" => id, "bytes" => photo.len());
+        Some(ServerMsg::LetterImg { id, img: proto::to_hex(&photo) })
     }
 
     /// 편지함 전체를 줌 (독자만, 아니면 None임)

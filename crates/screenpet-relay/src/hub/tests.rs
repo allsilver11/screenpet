@@ -41,6 +41,25 @@ fn a_letter_is_stored_pushed_to_online_readers_and_listed_only_for_them() {
 }
 
 #[test]
+fn a_photo_letter_lists_its_size_and_only_readers_get_the_photo() {
+    let (hub, (reader, rconn, rrx), (sender, sconn, _srx)) = mailbox_hub();
+    assert_eq!(hub.letter_with(&sender, sconn, "198.51.100.6", "abcd", "0102ff"), Some(ServerMsg::LetterOk));
+    let pushed = texts(&rrx);
+    assert!(matches!(&pushed[..], [ServerMsg::LetterNew { item }] if item.img == 3 && item.r#box == "abcd"), "{pushed:?}");
+    let Some(ServerMsg::Letters { items, .. }) = hub.letters(&reader, rconn) else { panic!() };
+    let id = items[0].id;
+    assert_eq!(items[0].img, 3, "the list says how big, not the photo");
+    assert_eq!(hub.letter_img(&reader, rconn, id), Some(ServerMsg::LetterImg { id, img: "0102ff".into() }));
+    assert_eq!(hub.letter_img(&sender, sconn, id), None, "not a reader: ignored");
+    assert_eq!(hub.letter_img(&reader, rconn, 999), Some(ServerMsg::LetterImg { id: 999, img: String::new() }));
+    assert_eq!(hub.letter_with(&sender, sconn, "198.51.100.6", "abcd", "zz"), Some(ServerMsg::LetterRefused { reason: "size".into() }));
+    assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "abcd"), Some(ServerMsg::LetterOk), "a letter without a photo");
+    texts(&rrx);
+    hub.letter_delete(&reader, rconn, id);
+    assert_eq!(hub.letter_img(&reader, rconn, id), Some(ServerMsg::LetterImg { id, img: String::new() }));
+}
+
+#[test]
 fn a_brand_new_install_cannot_send() {
     let hub = hub(Limits::default());
     let (k, c, _l, _rx) = peer_at(&hub, "198.51.100.7", 3, &[], 8);
