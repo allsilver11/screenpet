@@ -401,3 +401,93 @@ fn soul_drains_happen_often() {
 fn corner_frost_stays_small() {
     assert!(wz::FROST_SIZE <= 0.1);
 }
+
+/// 🖐️ 서리 낀 디멘터 (왼쪽 위 구석)
+fn frosted() -> (Pet, World) {
+    let w = world(vec![]);
+    let mut d = floating(250.0, 260.0, 4);
+    for _ in 0..(8.0 / DT) as usize {
+        d.dementor_tick(DT, &w);
+        d.clock += DT;
+    }
+    assert_eq!(d.frost().len(), 1);
+    (d, w)
+}
+
+/// 덮개 창에 보낼 서리의 닦은 자리들
+fn wipes_of(d: &Pet) -> Vec<(f64, f64, f64, f64)> {
+    let mut fx = Vec::new();
+    d.magic_fx(&mut fx);
+    fx.iter().filter_map(|f| match *f { MagicFx::FrostWipe { x, y, r, clear } => Some((x, y, r, clear)), _ => None }).collect()
+}
+
+/// 🖐️ 펫을 들고 서리 위를 문지르면 김 서린 유리에 손가락으로 그은 듯 지나간 자리만 닦임 (서리 자체는 그대로)
+#[test]
+fn rubbing_a_held_pet_over_the_frost_wipes_a_trail() {
+    let (mut d, _w) = frosted();
+    // 서리 밖은 안 닦임
+    assert!(!d.wipe_frost((900.0, 600.0), 30.0));
+    assert!(wipes_of(&d).is_empty());
+    // 구석을 가로질러 문지름
+    let mut x = 10.0;
+    while x < 120.0 {
+        d.wipe_frost((x, 40.0), 30.0);
+        x += 2.0;
+    }
+    let wipes = wipes_of(&d);
+    assert!(wipes.len() >= 4, "지나간 길을 따라 닦임: {wipes:?}");
+    assert!(wipes.len() <= 12, "촘촘히 문질러도 몇 점만 남김 (메모리·그리기): {wipes:?}");
+    // 구석 기준 자리 (서리가 구석 (0,0)이니 그대로), 처음엔 다 닦임
+    assert!(wipes.iter().all(|&(dx, dy, r, clear)| (0.0..130.0).contains(&dx) && (dy - 40.0).abs() < 1e-9 && r == 30.0 && clear == 1.0), "{wipes:?}");
+    assert_eq!(d.frost().len(), 1, "서리는 남음 — 닦은 자리만 맑음");
+}
+
+/// 🖐️ 닦은 자리는 진짜 유리처럼 천천히 다시 뿌예짐 (FROST_REFOG_SECS 뒤 없어짐). 같은 자리를 계속 문질러도 끝없이 쌓이지 않음
+#[test]
+fn a_wiped_spot_fogs_over_again_and_wipes_never_pile_up() {
+    let (mut d, w) = frosted();
+    assert!(d.wipe_frost((40.0, 40.0), 30.0));
+    let run = |d: &mut Pet, secs: f64| {
+        for _ in 0..(secs / DT) as usize {
+            d.dementor_tick(DT, &w);
+            d.clock += DT;
+        }
+    };
+    run(&mut d, wz::FROST_REFOG_SECS / 2.0);
+    let half = wipes_of(&d);
+    assert!(half.len() == 1 && half[0].3 > 0.3 && half[0].3 < 0.7, "반쯤 다시 뿌예짐: {half:?}");
+    run(&mut d, wz::FROST_REFOG_SECS / 2.0 + 1.0);
+    assert!(wipes_of(&d).is_empty());
+    // 마구 문질러도 상한
+    for i in 0..2000 {
+        let a = i as f64 * 0.37;
+        d.wipe_frost((60.0 + 50.0 * a.cos(), 60.0 + 50.0 * a.sin()), 30.0);
+    }
+    assert!(wipes_of(&d).len() <= wz::FROST_MAX_WIPES);
+}
+
+/// 🖐️ 끌고 있는 펫만 닦음 (그냥 서 있거나 눌렀다 뗀 펫은 아님) — 닦는 자리는 몸 가운데
+#[test]
+fn only_a_dragged_pet_wipes() {
+    let w = world(vec![]);
+    let mut p = resting(pet_cfg(), 300.0, 5, &w);
+    assert!(p.wipe_spot().is_none());
+    p.state = State::Dragged;
+    let (x, y, r) = p.wipe_spot().unwrap();
+    assert!((x - p.body.x).abs() < 1e-9 && y < p.body.y && r > 0.0);
+}
+
+/// 🖐️ 마우스를 빨리 휙 그어도 (틱 사이가 멀어도) 끊기지 않고 한 줄로 닦임
+#[test]
+fn a_fast_swipe_leaves_an_unbroken_streak() {
+    let (mut d, _w) = frosted();
+    assert!(d.wipe_frost_line((10.0, 40.0), (130.0, 40.0), 30.0));
+    let mut xs: Vec<f64> = wipes_of(&d).iter().map(|w| w.0).collect();
+    xs.sort_by(f64::total_cmp);
+    assert!(xs.first().unwrap() <= &12.0 && xs.last().unwrap() >= &128.0, "{xs:?}");
+    assert!(xs.windows(2).all(|p| p[1] - p[0] <= wz::FROST_WIPE_GAP * 30.0 + 1.0), "빈틈 없음: {xs:?}");
+    // 서리 밖으로 이어진 부분은 안 남김
+    let (mut d, _w) = frosted();
+    d.wipe_frost_line((60.0, 40.0), (1500.0, 40.0), 30.0);
+    assert!(wipes_of(&d).iter().all(|w| w.0 < 400.0));
+}

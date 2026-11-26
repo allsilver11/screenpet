@@ -295,6 +295,12 @@ pub const FROST_SWEPT_SECS: f64 = 60.0;
 pub const FROST_FADE: f64 = 1.0 / 40.0;
 /// 🥶 다 낀 서리 크기 (작업 영역 대각선 몫)
 pub const FROST_SIZE: f64 = 0.09;
+/// 🖐️ 펫을 들고 문질러 닦은 자리가 다시 뿌예지기까지 (초)
+pub const FROST_REFOG_SECS: f64 = 40.0;
+/// 🖐️ 서리 하나에 남기는 닦은 자리 수 상한 (넘으면 오래된 것부터 버림)
+pub const FROST_MAX_WIPES: usize = 48;
+/// 🖐️ 닦은 자리끼리 이만큼 (닦는 반지름 몫) 안이면 새로 안 남기고 그 자리를 다시 닦음
+pub const FROST_WIPE_GAP: f64 = 0.4;
 
 /// 👻 만난 펫의 영혼을 빼앗으려 하는 몫 · 같은 펫에게 다시 주사위를 굴리기까지 (초) · 한 번 빼앗고 쉬는 시간 (초)
 pub const DRAIN_CHANCE: f64 = 0.9;

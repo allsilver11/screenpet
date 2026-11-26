@@ -216,7 +216,7 @@ fn is_moving(s: &State) -> bool {
 /// 이 동물이 낼 수 있는 마법 효과인가 (예: 서리·영혼 줄기는 디멘터만)
 fn fx_allowed(fx: &MagicFx, c: &PetConfig) -> bool {
     match fx {
-        MagicFx::Frost { .. } | MagicFx::Soul { .. } => c.dementor,
+        MagicFx::Frost { .. } | MagicFx::FrostWipe { .. } | MagicFx::Soul { .. } => c.dementor,
         MagicFx::Stag { .. } | MagicFx::Otter { .. } => c.patronus.is_some(),
         MagicFx::Snake { .. } => c.dark_lord,
         MagicFx::Egg { .. } | MagicFx::Hatchling { .. } | MagicFx::Campfire { .. } => c.gamekeeper,

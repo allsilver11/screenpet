@@ -5,6 +5,7 @@
 //!   그 펫은 가까이 있는 동안 배가 더 고프고 (take_chill → 앱이 포만감에서 뺌), 들 수 있는 때면 GLOOM_SECS 동안 시무룩 (State::Gloom — annoyed 그림, "brrr...")
 //! - 🥶 서리: 디멘터가 작업 영역 구석의 FROST_REACH 안에 있으면 그 구석에 서리가 끼고, 멀어지거나 도망가면 천천히 녹음 (dementor_fx → MagicFx::Frost).
 //!   🧹 빗자루로 쓸면 바로 녹고 FROST_SWEPT_SECS 동안 다시 안 낌 (sweep_frost)
+//!   🖐️ 펫을 들고 서리 위를 문지르면 김 서린 유리에 손가락으로 그은 듯 지나간 자리만 닦이고 (wipe_frost → MagicFx::FrostWipe), FROST_REFOG_SECS에 걸쳐 다시 뿌예짐
 //! - 🦌 패트로누스에 쫓김 (be_repelled — brain_duel.rs가 부름): "hsss!" 하고 사슴 반대쪽 화면 위 구석으로 빠르게 날아감.
 //!   FLEE_SECS 동안 시무룩·서리·다가가기·영혼 빼앗기 없음
 //! - 👻 영혼 빼앗기: sync_drain (앱이 매 틱 — sync_lifts가 부름, 내 펫·친구 손님 펫 모두)이 디멘터 GLOOM_REACH 안에서 만난 펫에게
@@ -21,8 +22,20 @@ use crate::flight::{self, Goal, Style};
 use crate::magic::MagicFx;
 use crate::wizard as wz;
 
-/// 🥶 화면 구석 하나의 서리 (물리 px)
+/// 🖐️ 서리를 닦은 자리 하나 (물리 px)
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FrostWipe {
+    /// 가운데
+    pub x: f64,
+    pub y: f64,
+    /// 반지름
+    pub r: f64,
+    /// 닦은 뒤 흐른 초
+    pub age: f64,
+}
+
+/// 🥶 화면 구석 하나의 서리 (물리 px)
+#[derive(Debug, Clone, PartialEq)]
 pub struct FrostPatch {
     /// 구석 자리
     pub x: f64,
@@ -33,6 +46,15 @@ pub struct FrostPatch {
     pub size: f64,
     /// 낀 몫 (0…1)
     pub level: f64,
+    /// 🖐️ 닦은 자리들 (오래된 것부터, FROST_MAX_WIPES까지)
+    pub wipes: Vec<FrostWipe>,
+}
+
+impl FrostPatch {
+    /// 지금 보이는 반지름 (덮개 창 mgFrost와 같음)
+    pub fn radius(&self) -> f64 {
+        self.size * (0.45 + 0.55 * self.level.min(1.0))
+    }
 }
 
 /// 디멘터 (와 그 곁의 펫)의 기억
@@ -292,7 +314,7 @@ impl Pet {
                         f.level = (f.level + grow).min(1.0);
                         f.size = wz::FROST_SIZE * diag;
                     }
-                    None => self.dementor.frost.push(FrostPatch { x, y, inward, size: wz::FROST_SIZE * diag, level: grow }),
+                    None => self.dementor.frost.push(FrostPatch { x, y, inward, size: wz::FROST_SIZE * diag, level: grow, wipes: Vec::new() }),
                 }
                 grown.push((x, y));
             }
@@ -303,6 +325,13 @@ impl Pet {
             }
         }
         self.dementor.frost.retain(|f| f.level > 0.0);
+        // 🖐️ 닦은 자리는 천천히 다시 뿌예짐
+        for f in self.dementor.frost.iter_mut() {
+            for w in f.wipes.iter_mut() {
+                w.age += dt;
+            }
+            f.wipes.retain(|w| w.age < wz::FROST_REFOG_SECS);
+        }
         let clock = self.clock;
         self.dementor.swept.retain(|s| clock < s.2);
     }
@@ -327,6 +356,52 @@ impl Pet {
             false
         });
         melted
+    }
+
+    /// 🖐️ 들고 있는 펫이 (x, y) 둘레 r을 문지름 — 그 자리가 서리 안이면 닦음 (가까이 닦은 자리가 있으면 그 자리를 다시 맑게). 닦았으면 true
+    pub fn wipe_frost(&mut self, at: (f64, f64), r: f64) -> bool {
+        if !(at.0.is_finite() && at.1.is_finite() && r.is_finite() && r > 0.0) {
+            return false;
+        }
+        let mut wiped = false;
+        for f in self.dementor.frost.iter_mut() {
+            if (at.0 - f.x).hypot(at.1 - f.y) > f.radius() + 0.5 * r {
+                continue;
+            }
+            wiped = true;
+            match f.wipes.iter_mut().find(|w| (w.x - at.0).hypot(w.y - at.1) < wz::FROST_WIPE_GAP * r.min(w.r)) {
+                Some(w) => w.age = 0.0,
+                None => {
+                    f.wipes.push(FrostWipe { x: at.0, y: at.1, r, age: 0.0 });
+                    if f.wipes.len() > wz::FROST_MAX_WIPES {
+                        f.wipes.remove(0);
+                    }
+                }
+            }
+        }
+        wiped
+    }
+
+    /// 🖐️ from에서 to까지 문지름 — 틱 사이에 멀리 움직여도 끊기지 않게 FROST_WIPE_GAP 간격으로 이음 (너무 멀면 끝 쪽만). 닦았으면 true
+    pub fn wipe_frost_line(&mut self, from: (f64, f64), to: (f64, f64), r: f64) -> bool {
+        if self.dementor.frost.is_empty() || !(r.is_finite() && r > 0.0) {
+            return false;
+        }
+        let len = (to.0 - from.0).hypot(to.1 - from.1);
+        let step = wz::FROST_WIPE_GAP * r;
+        // 한 틱에 상한만큼만 (닦은 자리 상한을 한 번에 다 쓰지 않게)
+        let n = if len.is_finite() { ((len / step).ceil() as usize).min(wz::FROST_MAX_WIPES) } else { 0 };
+        let mut wiped = false;
+        for i in 0..=n {
+            let k = if n == 0 { 1.0 } else { i as f64 / n as f64 };
+            wiped |= self.wipe_frost((from.0 + (to.0 - from.0) * k, from.1 + (to.1 - from.1) * k), r);
+        }
+        wiped
+    }
+
+    /// 🖐️ 끌고 있으면 서리를 닦는 자리 (몸 가운데, 반지름) — 아니면 None
+    pub fn wipe_spot(&self) -> Option<(f64, f64, f64)> {
+        matches!(self.state, State::Dragged).then(|| (self.body.x, self.body.y - 0.5 * self.cfg.size, 0.35 * self.cfg.size))
     }
 
     /// 👻 새 날기의 목표: 가끔 (STALK_CHANCE) 같은 화면의 다른 펫 머리 위 (디멘터만, 도망 중·창 안이 아닐 때)
@@ -374,6 +449,11 @@ impl Pet {
     pub(super) fn dementor_fx(&self, out: &mut Vec<MagicFx>) {
         for f in self.dementor.frost.iter() {
             out.push(MagicFx::Frost { x: f.x, y: f.y, size: f.size.round(), inward: f.inward, level: (f.level * 50.0).ceil() / 50.0 });
+            // 🖐️ 닦은 자리 (맑은 몫은 1/20 단위로 — 다시 뿌예지는 동안 매 틱 보내지 않게)
+            for w in &f.wipes {
+                let clear = ((1.0 - w.age / wz::FROST_REFOG_SECS) * 20.0).ceil() / 20.0;
+                out.push(MagicFx::FrostWipe { x: w.x.round(), y: w.y.round(), r: w.r.round(), clear });
+            }
         }
         // 👻 펫 가슴에서 디멘터 망토 속으로 빨려 올라가는 영혼 줄기
         if let Some(d) = self.dementor.drain {

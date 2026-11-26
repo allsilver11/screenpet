@@ -10,6 +10,8 @@
 //     soul  {from, to, width, level, t}          👻 디멘터가 빼앗는 영혼 줄기 — 펫 가슴 (from)에서 디멘터 (to)로 일렁이며 빨려 올라가는 옅은 은빛 가닥
 //                                                + 가슴의 희미한 빛 + 올라가는 작은 빛 (level 0…1 짙기)
 //     frost {x, y, size, inward, level}          🥶 화면 구석의 서리 — 김 서린 듯 구석에서 안쪽으로 번지는 뿌연 흰빛
+//     frost_wipe {x, y, r, clear}                🖐️ 펫을 들고 문질러 닦은 서리 자리 — 서리를 그린 바로 뒤에 그 둘레 r을 clear (0…1)만큼 지움
+//                                                (김 서린 유리에 손가락으로 그은 듯. 다시 뿌예질수록 clear가 줄어듦. MG_MAX와 따로 MG_MAX_WIPES개까지)
 //     egg   {x, y, size, crack}                  🥚 해그리드가 품은 용알 (바닥 가운데 x, y — 높이 size) — 금이 갈수록 (crack 0…1) 지그재그 금·달달 떨림
 //     hatchling {x, y, size, t, len, dir}        🐉 깨어난 아기 용 — 알 껍데기가 갈라져 튀고, 알 자리 둘레를 파닥파닥 날다가 끝에 불을 퐁 뿜고 사라짐
 //     campfire {x, y, size, level}               🔥 해그리드가 피운 모닥불 (바닥 가운데 x, y — 장작 폭 size) — 엇갈린 장작 + 둥근 돌 + 일렁이는
@@ -21,13 +23,15 @@
 // 한 번에 MG_MAX개까지. 브라우저에서 trail.html?magic=1로 앱 없이 볼 수 있음 (결투·사슴·수달·영혼 줄기·뱀·서리).
 
 const MG_MAX = 24;
+// 🖐️ 서리 닦은 자리는 따로 이만큼까지 (구석 넷 × 코어 FROST_MAX_WIPES보다 조금 적게 — 많아도 원 몇십 개)
+const MG_MAX_WIPES = 160;
 // 사라진 빛줄기가 흐려지는 시간 · 결투 펑 시간 (초)
 const MG_FADE = 0.2;
 const MG_POP_SECS = 0.6;
 const MG_RED = ["rgba(255,70,60,", "rgba(255,200,190,"];
 const MG_GREEN = ["rgba(60,230,90,", "rgba(210,255,200,"];
 const MG_GOLD = ["rgba(255,196,60,", "rgba(255,246,200,"];
-const MG_KINDS = ["bolt", "duel", "snake", "stag", "otter", "soul", "frost", "egg", "hatchling", "campfire", "wand", "glow", "puff"];
+const MG_KINDS = ["bolt", "duel", "snake", "stag", "otter", "soul", "frost", "frost_wipe", "egg", "hatchling", "campfire", "wand", "glow", "puff"];
 
 const mgCanvas = document.getElementById("magic");
 const mgCtx = mgCanvas.getContext("2d");
@@ -53,6 +57,7 @@ function mgOk(f) {
   if (f.kind === "otter")
     return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.alpha) && Number.isFinite(f.tilt) && Number.isFinite(f.t);
   if (f.kind === "duel") return mgPt(f.red) && mgPt(f.green) && mgPt(f.clash) && f.width > 0 && f.width < 200 && Number.isFinite(f.reach);
+  if (f.kind === "frost_wipe") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.r > 0 && f.r < 1000 && f.clear > 0 && f.clear <= 1;
   if (f.kind === "frost") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 5000 && mgPt(f.inward) && f.level > 0;
   if (f.kind === "egg") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.crack);
   if (f.kind === "campfire") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.level);
@@ -62,7 +67,8 @@ function mgOk(f) {
 
 // 새 목록을 받음: 사라진 빛줄기는 흐려지게, 맞부딪혀 있던 결투는 펑
 function setMagic(list) {
-  const want = (Array.isArray(list) ? list : []).filter(mgOk).slice(0, MG_MAX);
+  const ok = (Array.isArray(list) ? list : []).filter(mgOk);
+  const want = [...ok.filter((f) => f.kind !== "frost_wipe").slice(0, MG_MAX), ...ok.filter((f) => f.kind === "frost_wipe").slice(0, MG_MAX_WIPES)];
   const now = performance.now();
   for (const f of mgFx) {
     const still = want.some((w) => w.kind === f.kind);
@@ -74,9 +80,9 @@ function setMagic(list) {
   wakeMagic();
 }
 
-// 움직이는 것이 있음 (서리는 그대로 서 있음)
+// 움직이는 것이 있음 (서리·닦은 자리는 그대로 서 있음)
 function mgMoving() {
-  return mgFx.some((f) => f.kind !== "frost") || mgGhosts.length > 0 || mgPops.length > 0;
+  return mgFx.some((f) => f.kind !== "frost" && f.kind !== "frost_wipe") || mgGhosts.length > 0 || mgPops.length > 0;
 }
 
 // 빛줄기 한 줄 (a → b, 바깥 번짐 + 밝은 속, 살짝 지그재그)
@@ -485,6 +491,20 @@ function mgFrost(f) {
   }
 }
 
+// 🖐️ 서리 닦은 자리: 서리를 그린 바로 뒤에 둘레 r을 부드러운 가장자리로 지움 (김 서린 유리에 손가락으로 그은 듯) — 그다음 효과는 보통대로 그리게 되돌림
+function mgFrostWipe(f) {
+  mgCtx.globalCompositeOperation = "destination-out";
+  const g = mgCtx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
+  g.addColorStop(0, `rgba(0,0,0,${f.clear})`);
+  g.addColorStop(0.6, `rgba(0,0,0,${0.85 * f.clear})`);
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  mgCtx.fillStyle = g;
+  mgCtx.beginPath();
+  mgCtx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.globalCompositeOperation = "source-over";
+}
+
 // 효과 하나 그리기 (t = 초)
 // 🥚 용알 (바닥 가운데 x, y · 높이 size): 크림색 알 + 초록 점, 금 (crack)이 갈수록 지그재그 금이 늘고 달달 떨림
 function mgEgg(f, t) {
@@ -784,6 +804,7 @@ function mgDraw(f, t) {
   else if (f.kind === "otter") mgOtter(f, t);
   else if (f.kind === "soul") mgSoul(f, t);
   else if (f.kind === "frost") mgFrost(f);
+  else if (f.kind === "frost_wipe") mgFrostWipe(f);
   else if (f.kind === "egg") mgEgg(f, t);
   else if (f.kind === "hatchling") mgHatchling(f);
   else if (f.kind === "campfire") mgCampfire(f, t);
@@ -792,7 +813,7 @@ function mgDraw(f, t) {
   else if (f.kind === "puff") mgPuff(f, t);
 }
 
-// 한 프레임: 서리 → 뱀 → 영혼 줄기 → 빛줄기·사슴·수달 순으로, 흐려지는 빛줄기·펑까지. 움직이는 것이 남았으면 다음 프레임
+// 한 프레임: 서리 → 서리 닦은 자리 → 뱀 → 영혼 줄기 → 빛줄기·사슴·수달 순으로, 흐려지는 빛줄기·펑까지. 움직이는 것이 남았으면 다음 프레임
 function drawMagic() {
   mgFrame = 0;
   const now = performance.now();
@@ -800,7 +821,7 @@ function drawMagic() {
   mgGhosts = mgGhosts.filter((g) => (now - g.born) / 1000 < MG_FADE);
   mgPops = mgPops.filter((p) => (now - p.born) / 1000 < MG_POP_SECS);
   mgCtx.clearRect(0, 0, mgCanvas.width, mgCanvas.height);
-  for (const kind of ["frost", "campfire", "snake", "egg", "hatchling", "wand", "soul", "bolt", "duel", "stag", "otter", "glow", "puff"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
+  for (const kind of ["frost", "frost_wipe", "campfire", "snake", "egg", "hatchling", "wand", "soul", "bolt", "duel", "stag", "otter", "glow", "puff"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
   for (const g of mgGhosts) mgBeam(g.fx.from, g.fx.to, g.fx.width, mgColor(g.fx.color), t, 1 - (now - g.born) / 1000 / MG_FADE);
   for (const p of mgPops) mgPop(p, (now - p.born) / 1000 / MG_POP_SECS);
   if (mgMoving()) mgFrame = requestAnimationFrame(drawMagic);
@@ -840,6 +861,7 @@ if (window.__TAURI__) {
     setMagic([
       { kind: "frost", x: 0, y: 0, size: 360, inward: [1, 1], level: 1 },
       { kind: "frost", x: W, y: H, size: 360, inward: [-1, -1], level: 0.6 },
+      ...[0, 1, 2, 3, 4, 5].map((i) => ({ kind: "frost_wipe", x: 40 + 22 * i, y: 70 + 18 * Math.sin(i), r: 26, clear: 1 })),
       { kind: "duel", red, green, clash: [red[0] + (green[0] - red[0]) * share, red[1]], reach: Math.min(1, t), width: 9, light: new URLSearchParams(location.search).get("light") || "red" },
       { kind: "stag", x: W * 0.2 + ((t * 220) % (W * 0.6)), y: H * 0.62, size: 130, dir: 1, alpha: 1 },
       { kind: "otter", x: W * 0.8 - ((t * 200) % (W * 0.6)), y: H * 0.5 - 45 * Math.sin(t * 10), size: 130, dir: -1, alpha: 1, tilt: -0.45 * Math.cos(t * 10), t },

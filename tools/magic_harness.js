@@ -10,6 +10,8 @@ const SRC = fs.readFileSync(path.join(__dirname, "..", "ui", "magic.js"), "utf8"
 /** 가짜 창 하나에 magic.js를 올림 */
 function load() {
   const counts = {};
+  // 그리기 차례: 부른 함수 이름과 globalCompositeOperation 바꾼 값 (🖐️ 서리 닦기 — 서리 바로 뒤에 지우고 되돌리는지)
+  const calls = [];
   const grad = { addColorStop() {} };
   const ctx = new Proxy(
     {},
@@ -17,10 +19,12 @@ function load() {
       get(_, name) {
         return (...args) => {
           counts[name] = (counts[name] || 0) + 1;
+          calls.push(name);
           return name.startsWith("create") ? grad : undefined;
         };
       },
-      set() {
+      set(_, name, value) {
+        if (name === "globalCompositeOperation") calls.push(`op:${value}`);
         return true;
       },
     },
@@ -64,6 +68,7 @@ function load() {
       return k;
     },
     rafs: () => rafs.length,
+    calls: () => calls.slice(),
     count: (name) => counts[name] || 0,
     alive: () => vm.runInContext("mgFx.length", sandbox),
     ghosts: () => vm.runInContext("mgGhosts.length", sandbox),
@@ -167,4 +172,13 @@ h = load();
 h.send("trail-magic", [{ ...soul, level: 0 }]);
 h.frames(3);
 out.soul_dim_curves = h.count("quadraticCurveTo") + h.count("bezierCurveTo");
+// 🖐️ 서리 닦은 자리: 서리 위에 지우고 (destination-out) 바로 되돌림, 서리처럼 가만히 (프레임 안 돌림), 이상한 값은 버림, MG_MAX와 따로 셈
+const wipe = { kind: "frost_wipe", x: 60, y: 40, r: 30, clear: 1 };
+h = load();
+h.send("trail-magic", [frost, ...Array.from({ length: 30 }, (_, i) => ({ ...wipe, x: 20 + 8 * i })), { ...wipe, r: 0 }, { ...wipe, clear: NaN }, { ...wipe, x: Infinity }, stag]);
+out.wipe_alive = h.alive();
+h = load();
+h.send("trail-magic", [wipe, frost]);
+out.wipe_rafs = h.rafs();
+out.wipe_calls = h.calls();
 process.stdout.write(JSON.stringify(out));

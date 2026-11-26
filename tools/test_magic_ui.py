@@ -190,3 +190,24 @@ def test_frost_is_a_soft_mist_without_ice_branches():
     body = body[: body.index("\n}\n")]
     assert "stroke" not in body and "lineTo" not in body
     assert "createRadialGradient" in body
+
+
+def test_wiped_frost_spots_are_erased_right_after_the_frost(run):
+    """🖐️ 펫을 들고 서리를 문지르면 김 서린 유리를 손가락으로 그은 듯 닦임: 서리를 그린 바로 뒤에 그 자리만 지우고 (destination-out) 되돌림"""
+    # 서리 1 + 닦은 자리 30 (MG_MAX 24와 따로) + 사슴 1, 이상한 닦은 자리 셋은 버림
+    assert run["wipe_alive"] == 32
+    assert run["wipe_rafs"] == 0, "닦은 자리도 가만히 — 받을 때 한 번만 그림"
+    calls = run["wipe_calls"]
+    out = calls.index("op:destination-out")
+    assert calls.index("createRadialGradient") < out, "서리를 먼저 그리고 나서 지움"
+    assert "op:source-over" in calls[out:], "지운 뒤 되돌림"
+    assert "arc" in calls[out:]
+
+
+def test_rubbing_frost_with_a_held_pet_is_wired():
+    assert "s.pet.wipe_spot()" in LOOP and "s.pet.wipe_frost_line(from, *at, *r)" in LOOP
+    # 지난 틱 자리부터 이어 닦고, 놓으면 잊음 (다시 집었을 때 먼 자리에서 줄을 긋지 않게)
+    assert "wipe_from = wipe_spots.into_iter()" in LOOP
+    help_html = (UI / "help.html").read_text(encoding="utf-8")
+    d = next(li for li in help_html.split("<li>") if li.startswith("👻 디멘터"))
+    assert "문지르" in d

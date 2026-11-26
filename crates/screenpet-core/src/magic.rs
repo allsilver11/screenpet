@@ -46,6 +46,8 @@ pub enum MagicFx {
     Soul { from: (f64, f64), to: (f64, f64), width: f64, level: f64, t: f64 },
     /// 🥶 서리: 구석 (x, y), 크기 size, inward = 화면 안쪽 부호 (±1, ±1), level = 낀 몫 0…1
     Frost { x: f64, y: f64, size: f64, inward: (f64, f64), level: f64 },
+    /// 🖐️ 서리를 닦은 자리: 가운데 (x, y), 반지름 r, clear = 맑은 몫 0…1 (다시 뿌예질수록 줄어듦) — 덮개 창이 서리를 그린 바로 뒤에 그만큼 지움
+    FrostWipe { x: f64, y: f64, r: f64, clear: f64 },
     /// 🥚 용알: 바닥 가운데 (x, y — 해그리드 손), 높이 size, crack = 금 간 몫 0…1
     Egg { x: f64, y: f64, size: f64, crack: f64 },
     /// 🐉 아기 용: 깨어난 알 자리 (x, y), 크기 size, t = 깨어난 뒤 초 (len초 — 덮개 창이 둘레를 날다 불 퐁 뿜고 사라지게 그림), dir = 처음 날아가는 쪽
@@ -65,7 +67,7 @@ impl MagicFx {
     pub fn anchor(&self) -> (f64, f64) {
         match *self {
             MagicFx::Bolt { from, .. } | MagicFx::Wand { from, .. } | MagicFx::Soul { from, .. } => from,
-            MagicFx::Glow { x, y, .. } | MagicFx::Puff { x, y, .. } => (x, y),
+            MagicFx::Glow { x, y, .. } | MagicFx::Puff { x, y, .. } | MagicFx::FrostWipe { x, y, .. } => (x, y),
             MagicFx::Duel { clash, .. } => clash,
             MagicFx::Snake { x, y, .. } | MagicFx::Stag { x, y, .. } | MagicFx::Otter { x, y, .. } | MagicFx::Egg { x, y, .. } | MagicFx::Hatchling { x, y, .. } | MagicFx::Campfire { x, y, .. } => (x, y - 1.0),
             MagicFx::Frost { x, y, inward, .. } => (x + inward.0, y + inward.1),
@@ -93,6 +95,10 @@ impl MagicFx {
             MagicFx::Frost { x, y, size, inward, level } => {
                 let (x, y) = at((x, y));
                 MagicFx::Frost { x, y, size: size * scale, inward, level }
+            }
+            MagicFx::FrostWipe { x, y, r, clear } => {
+                let (x, y) = at((x, y));
+                MagicFx::FrostWipe { x, y, r: r * scale, clear }
             }
             MagicFx::Egg { x, y, size, crack } => {
                 let (x, y) = at((x, y));

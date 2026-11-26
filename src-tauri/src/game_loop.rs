@@ -645,6 +645,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     objects.set_dpi_hint(slots[OWN].dpi);
     // 🕐 최근 한 시간 (메모리에만)
     let mut timeline = TimelineFx::new();
+    // 🖐️ 지난 틱에 서리를 닦던 자리 (끌고 있는 펫 라벨마다) — 이번 자리까지 이어서 닦음
+    let mut wipe_from: Vec<(String, (f64, f64))> = Vec::new();
     // 🔄 새 버전 응원 (버전마다 한 번)
     let mut cheer_gate = screenpet_core::update::CheerGate::default();
     // 💩 왼쪽 버튼을 새로 누른 순간만 씀 (어디를 무엇을 눌렀는지는 보지도 남기지도 않음)
@@ -1544,6 +1546,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                 }
             }
         }
+        // 🖐️ 펫을 들고 디멘터 서리 위를 문지르면 김 서린 유리를 손가락으로 그은 듯 지나간 자리만 닦임 (코어 brain_dementor.rs wipe_frost)
+        // (빨리 휙 그어도 끊기지 않게 지난 틱 자리부터 이어 닦음 — 새로 집은 펫은 지금 자리부터)
+        let wipe_spots: Vec<(String, (f64, f64), f64)> = slots.iter().filter(|s| s.on_screen()).filter_map(|s| s.pet.wipe_spot().map(|(x, y, r)| (s.label.clone(), (x, y), r))).collect();
+        for (label, at, r) in &wipe_spots {
+            let from = wipe_from.iter().find(|(l, _)| l == label).map_or(*at, |(_, p)| *p);
+            for s in slots.iter_mut() {
+                s.pet.wipe_frost_line(from, *at, *r);
+            }
+        }
+        wipe_from = wipe_spots.into_iter().map(|(label, at, _)| (label, at)).collect();
         // ⛄ 문질러 뭉치기: 빗자루·음식·동물·물건을 들고 있지 않을 때, 커서 바로 아래 보이는 눈 더미 위에서 좌우로 빠르게 문지르면
         // 그 자리의 눈을 모아 눈덩이를 만듦 (날씨 창은 마우스가 통과하므로 클릭 없이). 눈이 모자라면 아무 일 없음
         {
