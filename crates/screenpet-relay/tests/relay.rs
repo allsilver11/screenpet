@@ -497,8 +497,8 @@ fn only_a_signed_in_photo_letter_with_a_slot_may_be_a_big_text() {
 fn big_letter_slots_are_few_and_come_back() {
     let limits = Limits { max_photo_letters: 1, photo_letter_hold: Duration::from_millis(400), ..Limits::default() };
     let relay = start(limits);
-    let (mut a, _) = Client::login(&relay, &key(), "aaaa", &[]);
-    let (mut b, _) = Client::login(&relay, &key(), "bbbb", &[]);
+    let (mut a, _) = Client::login_as(&relay, Some("198.51.100.1"), &key(), "aaaa", &[]).unwrap();
+    let (mut b, _) = Client::login_as(&relay, Some("198.51.100.2"), &key(), "bbbb", &[]).unwrap();
     a.send(&json!({"t": "letter_begin"}));
     a.expect("letter_go", 2.0);
     b.send(&json!({"t": "letter_begin"}));
@@ -507,19 +507,48 @@ fn big_letter_slots_are_few_and_come_back() {
     a.expect("letter_refused", 2.0);
     b.send(&json!({"t": "letter_begin"}));
     b.expect("letter_go", 2.0);
-    // 쓰지 않은 자리는 잠시 뒤 돌아옴 (그 연결의 한도도 다시 64 KiB)
-    std::thread::sleep(Duration::from_millis(700));
-    b.send(&json!({"t": "ping"}));
-    b.expect("pong", 2.0);
-    a.send(&json!({"t": "letter_begin"}));
-    a.expect("letter_go", 2.0);
-    b.send(&json!({"t": "letter", "box": "00", "img": "ab".repeat(40 * 1024)}));
-    assert_eq!(b.closed(2.0), Some(Some("too_large".into())), "b's slot ran out");
-    drop(a);
-    std::thread::sleep(Duration::from_millis(300));
-    let (mut d, _) = Client::login(&relay, &key(), "dddd", &[]);
+    // 자리를 받고 편지를 다 보내지 않으면 연결째 끊음 (반쯤 받은 큰 버퍼도 같이 놓음)
+    assert_eq!(b.closed(2.0), Some(Some("photo_timeout".into())));
+    std::thread::sleep(Duration::from_millis(100));
+    let (mut d, _) = Client::login_as(&relay, Some("198.51.100.4"), &key(), "dddd", &[]).unwrap();
     d.send(&json!({"t": "letter_begin"}));
     d.expect("letter_go", 2.0);
+    drop(d);
+    std::thread::sleep(Duration::from_millis(300));
+    let (mut e, _) = Client::login_as(&relay, Some("198.51.100.5"), &key(), "eeee", &[]).unwrap();
+    e.send(&json!({"t": "letter_begin"}));
+    e.expect("letter_go", 2.0);
+}
+
+#[test]
+fn letter_begin_is_rate_limited_per_install_and_per_address() {
+    let relay = start(Limits::default());
+    let ka = key();
+    let (mut a, _) = Client::login_as(&relay, Some("198.51.100.1"), &ka, "aaaa", &[]).unwrap();
+    a.send(&json!({"t": "letter_begin"}));
+    a.expect("letter_go", 2.0);
+    a.send(&json!({"t": "letter_begin"}));
+    assert_eq!(a.expect("letter_refused", 2.0)["reason"], "photo_busy", "this connection already holds a slot");
+    a.send(&json!({"t": "letter", "box": "00"}));
+    a.expect("letter_refused", 2.0);
+    a.send(&json!({"t": "letter_begin"}));
+    assert_eq!(a.expect("letter_refused", 2.0)["reason"], "photo_busy", "one a 20 s per install");
+    let (mut a2, _) = Client::login_as(&relay, Some("198.51.100.9"), &ka, "aaaa", &[]).unwrap();
+    a2.send(&json!({"t": "letter_begin"}));
+    assert_eq!(a2.expect("letter_refused", 2.0)["reason"], "photo_busy", "the same install from elsewhere");
+    // 한 주소 묶음에서 분에 PHOTO_BEGINS_PER_IP까지
+    let per_ip = Limits::default().photo_begins_per_ip_per_min;
+    for n in 0..per_ip {
+        let (mut c, _) = Client::login_as(&relay, Some("203.0.113.7"), &key(), "cccc", &[]).unwrap();
+        c.send(&json!({"t": "letter_begin"}));
+        c.expect("letter_go", 2.0);
+        c.send(&json!({"t": "letter", "box": "00"}));
+        c.expect("letter_refused", 2.0);
+        let _ = n;
+    }
+    let (mut c, _) = Client::login_as(&relay, Some("203.0.113.7"), &key(), "cccc", &[]).unwrap();
+    c.send(&json!({"t": "letter_begin"}));
+    assert_eq!(c.expect("letter_refused", 2.0)["reason"], "photo_busy", "this address bucket had its share");
 }
 
 #[test]

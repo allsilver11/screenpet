@@ -74,7 +74,7 @@
 | conn | `refused` | WARN | conn ip reason | 받기 전 거절: `busy`(한도), `banned`, `relay_off`, `origin`(웹 페이지) |
 | conn | `auth_fail` | WARN | conn ip | 인증 MAC 틀림 (대는 키는 증명 안 됐으므로 안 적음) |
 | conn | `bad_message` | WARN | conn peer reason | `bad_json`, `too_large`, `unexpected`, `bad_frame` → 끊음 |
-| conn | `rate_limited` | WARN | conn peer what | 연결 한도: `messages`·`friends`면 끊음, `redeem`·`letter`·`new_code`·`weather_want`는 그 요청만 거절 |
+| conn | `rate_limited` | WARN | conn peer what | 연결 한도: `messages`·`friends`면 끊음, `redeem`·`letter`·`letter_begin`(🖼️ 사진 편지 자리, `photo_busy`)·`letter_img`·`new_code`·`weather_want`는 그 요청만 거절 |
 | conn | `close` | INFO | conn peer reason up_s | 연결 끝. reason: `client_close`, `idle`, `timeout`(인증 안 함), `gone`(소켓 끊김), `write_fail`, `rate`, `slow`, `replaced`, `kicked`, `banned`, `busy`, `shutdown`, `relay_off`, `auth`, 거절 까닭 등 |
 | conn | `thread_refused` | WARN | conn | 스레드가 너무 많아 연결을 버림 |
 | conn | `accept_fail` | ERROR | err | accept 실패 (보통 fd 바닥, 1분에 한 번만) |

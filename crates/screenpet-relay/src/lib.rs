@@ -135,8 +135,12 @@ pub struct Limits {
     pub prune_every: Duration,
     /// 🖼️ 릴레이 전체에서 동시에 받는 사진 편지 자리 (자리마다 연결 하나의 소켓 한도가 `MAX_LETTER_TEXT`로 커짐)
     pub max_photo_letters: usize,
-    /// 🖼️ 받은 자리를 쓰지 않으면 이만큼 뒤 돌려받음 (한도도 다시 64 KiB)
+    /// 🖼️ 받은 자리로 이만큼 안에 편지를 다 보내지 않으면 연결을 끊음 (`photo_timeout` — 반쯤 받은 버퍼와 자리를 같이 놓음)
     pub photo_letter_hold: Duration,
+    /// 🖼️ 설치 키 하나가 `letter_begin`으로 자리를 받는 간격
+    pub photo_begin_key_gap: Duration,
+    /// 🖼️ 주소 묶음 하나가 분마다 받는 자리 수
+    pub photo_begins_per_ip_per_min: usize,
 }
 
 impl Default for Limits {
@@ -191,6 +195,8 @@ impl Default for Limits {
             prune_every: Duration::from_secs(600),
             max_photo_letters: 32,
             photo_letter_hold: Duration::from_secs(30),
+            photo_begin_key_gap: Duration::from_secs(20),
+            photo_begins_per_ip_per_min: 4,
         }
     }
 }

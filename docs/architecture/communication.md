@@ -160,7 +160,7 @@ sequenceDiagram
 | `stats_report` | `report{day, v, kept[], chosen{}, changed[{from,to,n}]}` | 📊 지난날 익명 펫 통계 (하루 한 번, 연결당 날마다 한 번) → `stats_ok` | **4** | 모두 (동의한 앱만 보냄) |
 | `stats_get` | `before?` | 📊 `before`보다 앞선 날의 합계 한 쪽 → `stats_days` (앱은 `more`인 동안 차례로 청해 모음) | **4** | 편지함 독자 |
 | `letter` + `img` | `box, img` (hex) | 🖼️ 사진 붙은 편지: `box`는 사진을 말하는 봉투, `img`는 같은 Noise 세션으로 이어 봉인한 사진 (≤ 120 KiB + 256). 텍스트 전체 ≤ `MAX_LETTER_TEXT`(약 258 KiB) — 먼저 `letter_begin` → `letter_go`를 받은 인증 연결의 `letter` 하나만 16 KiB를 넘을 수 있음. 옛 릴레이(v4 이하)는 큰 메시지에 연결을 끊으므로 앱은 사진 없는 봉투만 보내고 창에 "글만 갔어요" | **5** | 모두 |
-| `letter_begin` | – | 🖼️ 사진 편지 자리 청하기 → `letter_go` 또는 `letter_refused {reason: photo_busy}`. 자리를 받은 연결만 소켓 받기 한도가 64 KiB → `MAX_LETTER_TEXT`로 커짐 (편지 하나, 또는 30초 동안). 릴레이 전체 동시 32자리 (`Limits::max_photo_letters`) | **5** | 모두 |
+| `letter_begin` | – | 🖼️ 사진 편지 자리 청하기 → `letter_go` 또는 `letter_refused {reason: photo_busy}`. 자리를 받은 연결만 소켓 받기 한도가 64 KiB → `MAX_LETTER_TEXT`로 커짐 (편지 하나). 자리 규칙: 그 연결이 이미 쥐고 있으면 안 줌, 설치 키마다 20초에 하나, 주소 묶음마다 분에 4개, 전체 32개. 받고 30초 안에 편지를 다 보내지 않으면 연결을 끊음(`photo_timeout`) — 반쯤 받은 큰 버퍼도 자리와 같이 놓임 (`Limits::max_photo_letters`·`photo_letter_hold`·`photo_begin_key_gap`·`photo_begins_per_ip_per_min`) | **5** | 모두 |
 | `letter_img` | `id` | 🖼️ 편지 사진 → `letter_img` (연결당 초에 하나, 몰아 10 — 넘으면 빈 `img`로 답함) | **5** | 편지함 독자 |
 
 ### 3.2 릴레이 → 앱 (`ServerMsg`, `relay.rs:135`)
@@ -191,7 +191,7 @@ sequenceDiagram
 
 `letters`·`letter_new`의 편지(`Letter`)에는 v5부터 `img`(봉인 사진 바이트 수, 0이면 안 씀)가 붙음. 사진 자체는 목록에 없음 (목록 메시지가 64 KiB 안에 남게). 옛 앱은 모르는 칸을 무시함. 앱은 기다리는 사진 요청을 끊길 때·10초 시간 초과 때 "없음"으로 끝냄 (창도 10초 뒤 "볼 수 없어요", 눌러서 다시).
 
-`error.reason` 값 (`conn.rs`, `hub/presence.rs` `join`, `hub/mod.rs`): `auth`, `timeout`, `idle`, `rate`, `too_large`, `bad_message`, `bad_frame`, `unexpected`, `slow`, `busy`, `banned`, `registration_closed`, `full`, `replaced`, `relay_off`, `shutdown`.
+`error.reason` 값 (`conn.rs`, `hub/presence.rs` `join`, `hub/mod.rs`): `auth`, `timeout`, `idle`, `rate`, `too_large`, `bad_message`, `bad_frame`, `unexpected`, `slow`, `busy`, `banned`, `registration_closed`, `full`, `replaced`, `relay_off`, `shutdown`, `photo_timeout`(🖼️ 사진 편지 자리를 받고 30초 안에 다 안 보냄).
 
 ---
 

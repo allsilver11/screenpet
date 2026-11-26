@@ -305,13 +305,19 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                                 }
                                 ClientMsg::Ping => Some(ServerMsg::Pong),
                                 ClientMsg::LetterBegin => {
-                                    if big.is_none() {
-                                        big = hub.photo_slot().map(|s| (s, Instant::now()));
-                                        if big.is_some() {
+                                    // 이미 자리를 쥔 연결, 키·주소 속도, 전체 자리 수 — 안 되면 photo_busy
+                                    let slot = if big.is_none() { hub.photo_begin(&a.key, &ip) } else { None };
+                                    match slot {
+                                        Some(s) => {
+                                            big = Some((s, Instant::now()));
                                             set_big(&mut ws, true);
+                                            Some(ServerMsg::LetterGo)
+                                        }
+                                        None => {
+                                            limited(cid, peer, "letter_begin");
+                                            Some(ServerMsg::LetterRefused { reason: "photo_busy".into() })
                                         }
                                     }
-                                    Some(if big.is_some() { ServerMsg::LetterGo } else { ServerMsg::LetterRefused { reason: "photo_busy".into() } })
                                 }
                                 ClientMsg::Letter { r#box, img } => {
                                     // 🖼️ 자리는 편지 하나에 한 번
@@ -424,10 +430,10 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
             }
         }
         let now = Instant::now();
-        // 🖼️ 쓰지 않은 사진 편지 자리는 돌려줌
+        // 🖼️ 자리를 받고 제때 편지를 다 보내지 않았음: 연결째 끊음 (tungstenite가 반쯤 받아 둔 큰 버퍼도 자리와 같이 놓임)
         if big.as_ref().is_some_and(|(_, at)| now.duration_since(*at) > lim.photo_letter_hold) {
-            big = None;
-            set_big(&mut ws, false);
+            refuse(&mut ws, "photo_timeout");
+            break "photo_timeout".into();
         }
         if authed.is_none() && now.duration_since(started) > lim.auth_timeout {
             refuse(&mut ws, "timeout");

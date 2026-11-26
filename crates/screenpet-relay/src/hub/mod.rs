@@ -390,6 +390,17 @@ pub struct Hub {
     stats_save: Mutex<()>,
     /// 🖼️ 지금 쓰고 있는 사진 편지 자리 수 (`Limits::max_photo_letters`까지)
     photo_slots: Arc<AtomicUsize>,
+    /// 🖼️ 자리를 준 때: 설치 키별 마지막, 주소 묶음별 지난 1분 (몇 클라이언트가 자리를 다 붙잡지 못하게)
+    photo_begins: Mutex<PhotoBegins>,
+}
+
+/// 🖼️ `letter_begin` 속도 기록
+#[derive(Default)]
+struct PhotoBegins {
+    /// 설치 키 → 마지막으로 자리를 받은 때
+    by_key: HashMap<String, Instant>,
+    /// 주소 묶음 → 지난 1분 동안 자리를 받은 때들
+    by_ip: HashMap<String, VecDeque<Instant>>,
 }
 
 /// 🖼️ 사진 편지 자리 하나 (놓으면 돌아감 — 연결이 끊겨도)
@@ -443,6 +454,7 @@ impl Hub {
             threads: Mutex::new(Vec::new()),
             mailbox_save: Mutex::new(()),
             photo_slots: Arc::new(AtomicUsize::new(0)),
+            photo_begins: Mutex::new(PhotoBegins::default()),
         }
     }
 
@@ -510,8 +522,30 @@ impl Hub {
         st.peers.get(key).is_some_and(|p| p.conn == conn)
     }
 
+    /// 🖼️ `key`(주소 묶음 `ip`)에게 사진 편지 자리를 줌: 키마다 `photo_begin_key_gap`에 하나, 묶음마다 분에
+    /// `photo_begins_per_ip_per_min`개, 전체 `max_photo_letters`개. 안 되면 None
+    pub(crate) fn photo_begin(&self, key: &str, ip: &str) -> Option<PhotoSlot> {
+        let now = Instant::now();
+        let mut b = self.photo_begins.lock().unwrap_or_else(|e| e.into_inner());
+        let gap = self.limits.photo_begin_key_gap;
+        b.by_key.retain(|_, t| now.duration_since(*t) < gap);
+        for q in b.by_ip.values_mut() {
+            while q.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60)) {
+                q.pop_front();
+            }
+        }
+        b.by_ip.retain(|_, q| !q.is_empty());
+        if b.by_key.contains_key(key) || b.by_ip.get(ip).is_some_and(|q| q.len() >= self.limits.photo_begins_per_ip_per_min) {
+            return None;
+        }
+        let slot = self.photo_slot()?;
+        b.by_key.insert(key.to_string(), now);
+        b.by_ip.entry(ip.to_string()).or_default().push_back(now);
+        Some(slot)
+    }
+
     /// 🖼️ 사진 편지 자리를 하나 받음 (다 찼으면 None)
-    pub(crate) fn photo_slot(&self) -> Option<PhotoSlot> {
+    fn photo_slot(&self) -> Option<PhotoSlot> {
         let max = self.limits.max_photo_letters;
         let mut n = self.photo_slots.load(Ordering::SeqCst);
         loop {

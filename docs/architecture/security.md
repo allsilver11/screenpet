@@ -137,7 +137,7 @@
 | 메시지 폭주 | 연결당 200 msg/s·512 KiB/s, 채널 방향당 20 프레임/s, `friends` 0.5/s(burst 30), `weather_want` 0.1/s(burst 5) | `conn.rs:24-37`, `:203`, `:284` |
 | 대역폭 | 주소 2 MiB/s(재연결해도 안 참), 전체 16 MiB/s(네트워크 몫 1/16), 천장 32 MiB/s | `hub/routing.rs:6`, `:102` `bandwidth_allows` |
 | 느린 수신자 | 연결 큐 2 MiB 넘으면 채널 닫음, 5초 안 움직이면 `slow`. 전체 큐 256 MiB | `hub/routing.rs:120` `enqueue_frame` |
-| 크기 | 텍스트 16 KiB, 소켓 한도 4 + 65535 (인증 전에도). 🖼️ `letter_begin`으로 자리를 받은 인증 연결만 그 연결의 소켓 한도가 `MAX_LETTER_TEXT` ≈ 258 KiB로 커지고 큰 `letter` 하나만 받음 (편지 하나나 30초 뒤 다시 64 KiB). 자리는 릴레이 전체 32개 → 큰 버퍼는 최대 ≈ 8 MiB, 없으면 `photo_busy`. 프레임 4 + 65535, 요청 머리 8 KiB·5 s | `conn.rs` `Message::Text`, `http.rs` `ws_config`, `:113` |
+| 크기 | 텍스트 16 KiB, 소켓 한도 4 + 65535 (인증 전에도). 🖼️ `letter_begin`으로 자리를 받은 인증 연결만 그 연결의 소켓 한도가 `MAX_LETTER_TEXT` ≈ 258 KiB로 커지고 큰 `letter` 하나만 받음 (편지 하나 뒤 다시 64 KiB). 자리 규칙: 그 연결이 이미 쥐고 있으면 안 줌, 설치 키마다 20초에 하나, 주소 묶음마다 분에 4개, 전체 32개. 받고 30초 안에 편지를 다 보내지 않으면 연결을 끊음(`photo_timeout`) — 반쯤 받은 큰 버퍼도 자리와 같이 놓임 → 큰 버퍼는 최대 ≈ 8 MiB. 안 되면 `photo_busy`. 프레임 4 + 65535, 요청 머리 8 KiB·5 s | `conn.rs` `Message::Text`, `http.rs` `ws_config`, `:113` |
 | 편지 | 연결당 분당 3, 키당 하루 **5**, 주소당 10, 전체 50, 2일 이상 본 키만, 200통에서 거절(옛 편지는 안 버림), 차단 키 거절 | `conn.rs:26`, `mailbox.rs:14-28`, `:156` `submit` |
 | 건의함 조회 | 0.5초 간격 | `Limits::board_gap` |
 | 다운로드 | 이름 허용 목록, 심볼릭 링크 거절, 동시 8·주소당 2, 30분·64 KiB/s·10초 정지 컷 | `downloads.rs:35`, `:127`, `:144` |
