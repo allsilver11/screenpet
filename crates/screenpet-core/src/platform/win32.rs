@@ -434,6 +434,28 @@ fn write_dword(name: windows::core::PCWSTR, value: u32) -> bool {
     err.is_ok()
 }
 
+/// 주 작업표시줄과 모든 보조 모니터 작업표시줄에 테마가 바뀌었다고 직접 알림 (창마다 최대 200 ms).
+/// 모든 창에 차례로 보내는 알림은 멈춘 창마다 기다려서 다른 모니터 작업표시줄이 한참 늦게 바뀌었음 (2026-11-26)
+fn notify_taskbars(area: windows::core::PCWSTR) {
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE};
+    for class in [windows::core::w!("Shell_TrayWnd"), windows::core::w!("Shell_SecondaryTrayWnd")] {
+        let mut after = HWND::default();
+        // 같은 이름의 창을 차례로 (보조 작업표시줄은 모니터마다 하나) — 무한히 돌지 않게 상한
+        for _ in 0..16 {
+            // SAFETY: 클래스 이름은 정적 넓은 문자열, after는 앞에서 찾은 창 (없으면 처음부터)
+            let Ok(h) = (unsafe { FindWindowExW(HWND::default(), after, class, windows::core::PCWSTR::null()) }) else { break };
+            if h.is_invalid() {
+                break;
+            }
+            // SAFETY: area는 정적 넓은 문자열 — 알림 동안 살아 있음
+            unsafe {
+                SendMessageTimeoutW(h, WM_SETTINGCHANGE, WPARAM(0), LPARAM(area.as_ptr() as isize), SMTO_ABORTIFHUNG, 200, None);
+            }
+            after = h;
+        }
+    }
+}
+
 impl crate::lumos::ThemeBackend for Win32Theme {
     /// 지금 테마 (값이 없으면 라이트로 봄 — Windows 기본)
     fn read(&mut self) -> Option<crate::lumos::Theme> {
@@ -442,11 +464,13 @@ impl crate::lumos::ThemeBackend for Win32Theme {
         Some(crate::lumos::Theme { apps_light: apps != 0, system_light: system != 0 })
     }
 
-    /// 두 값을 쓰고 모든 창에 테마가 바뀌었다고 알림 (멈춘 창은 기다리지 않음 — 창마다 최대 200 ms)
+    /// 두 값을 쓰고 모든 모니터 작업표시줄, 그다음 모든 창에 테마가 바뀌었다고 알림 (멈춘 창은 기다리지 않음 — 창마다 최대 200 ms)
     fn write(&mut self, theme: crate::lumos::Theme) -> bool {
         use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE};
         let ok = write_dword(windows::core::w!("AppsUseLightTheme"), u32::from(theme.apps_light)) & write_dword(windows::core::w!("SystemUsesLightTheme"), u32::from(theme.system_light));
         let area = windows::core::w!("ImmersiveColorSet");
+        // 모든 모니터의 작업표시줄부터 (한 모니터만 바뀌고 나머지가 한참 늦던 문제)
+        notify_taskbars(area);
         // SAFETY: area는 정적 넓은 문자열 — 알림 동안 살아 있음
         unsafe {
             SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, WPARAM(0), LPARAM(area.as_ptr() as isize), SMTO_ABORTIFHUNG, 200, None);
