@@ -1062,16 +1062,22 @@ fn qa_sim_hagrid_hugs_harry_and_hermione_when_they_meet() {
     assert!(total >= 9, "5분씩 여섯 판에 {total}번 안음");
 }
 
-/// 🎒 해리·헤르미온느·볼드모트가 한 화면에 있으면 해리가 낄 결투는 대개 헤르미온느가 해리를 가방에 숨기고 대신 함:
-/// 6분 40초씩 여덟 판 — 거의 모든 판에 한 번은, 모두 합쳐 해리의 평소 결투보다 두 배 넘게
+/// 🎒 해리·헤르미온느·볼드모트가 한 화면에 있으면 헤르미온느가 해리를 가방에 숨기고 대신 결투하는 게 자주 보임 —
+/// 6분 40초씩 여덟 판. 숨길 땐 해리가 늘 바로 곁 (TUCK_REACH)에 있었음 (멀리서 날아들지 않음)
 #[test]
 fn qa_sim_hermione_usually_tucks_harry_before_the_duel() {
-    let (mut tucks, mut plain, mut seeds_with) = (0, 0, 0);
+    let (mut tucks, mut plain, mut seeds_with, mut farthest) = (0, 0, 0, 0.0_f64);
     for seed in 1..=8 {
         let (mut mine, mut was_t, mut was_d) = (0, false, false);
         hogwarts_scene(&["harry", "hermione", "voldemort"], &[600.0, 1100.0, 1500.0], vec![], seed, 400.0, |_, pets| {
             let t = pets[0].tucked_in().is_some();
             let d = pets[0].dueling().is_some();
+            if t && !was_t {
+                let big = pets[0].cfg.size.max(pets[1].cfg.size);
+                // 숨기 시작한 틱의 자리 (State::Tucked.from — 그 틱엔 아직 제자리 가까이)
+                let from = match pets[0].state { State::Tucked { from, .. } => from, _ => pets[0].body.x };
+                farthest = farthest.max((from - pets[1].body.x).abs() / big);
+            }
             mine += usize::from(t && !was_t);
             plain += usize::from(d && !was_d);
             was_t = t;
@@ -1080,7 +1086,8 @@ fn qa_sim_hermione_usually_tucks_harry_before_the_duel() {
         seeds_with += usize::from(mine > 0);
         tucks += mine;
     }
-    assert!(seeds_with >= 6 && tucks >= 2 * plain, "숨기기 {tucks} ({seeds_with}판) · 해리 평소 결투 {plain}");
+    assert!(seeds_with >= 5 && tucks >= 8, "숨기기 {tucks} ({seeds_with}판) · 해리 평소 결투 {plain}");
+    assert!(farthest <= crate::wizard::TUCK_REACH + 0.5, "멀리서 날아듦: 몸 {farthest:.1}배");
 }
 
 /// 👜 바닥에 물건이 있으면 헤르미온느가 몇 분 안에 가방에 하나씩 넣고, 넣을수록 가방이 눈에 띄게 커짐 (seed 넷 모두 — 물건 하나여도)

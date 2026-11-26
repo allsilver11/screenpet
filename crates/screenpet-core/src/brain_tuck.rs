@@ -1,12 +1,13 @@
 //! 🎒 가방에 숨기 (2026-11-20 spec 추가 요청) — brain.rs의 자식 모듈. 숫자는 wizard.rs (TUCK_* · HIDE_*).
 //!
 //! 해리·헤르미온느·볼드모트가 한 화면에 모이면 평소 결투 (해리 vs 볼드모트)보다 먼저:
-//! 1. try_tuck (sync_duels가 볼드모트와의 결투를 막 시작하려 할 때 부름): 가방 주인 (pet.json `bag_cleaner` — 헤르미온느)이 한가하고, 곁 (TUCK_REACH)에
-//!    빨강 빛줄기 마법사 (Expelliarmus — 해리)가 한가하고, 볼드모트가 결투 거리에 있으면 (둘 중 하나만 결투 쉬는 때가 지났어도 — 헤르미온느가 끼어듦)
-//!    TUCK_CHANCE로 헤르미온느 "In you go!" — 가방을 벌려 들고 (bag_stuff, Duel.hold = HIDE_SECS)
+//! 1. try_tuck (sync_duels가 볼드모트와의 결투를 막 시작하려 할 때 부름): 가방 주인 (pet.json `bag_cleaner` — 헤르미온느)이 한가하고, 바로 곁 (TUCK_REACH)에
+//!    빨강 빛줄기 마법사 (Expelliarmus — 해리)가 있고 (뭘 하고 있든 — 붙잡을 수 없는 때만 빼고, hidee_free), 볼드모트가 결투 거리에 있으면
+//!    (둘 중 하나만 결투 쉬는 때가 지났어도 — 헤르미온느가 끼어듦) 늘 (TUCK_CHANCE) 헤르미온느 "In you go!" — 가방을 벌려 들고 (bag_stuff, Duel.hold = HIDE_SECS)
 //!    해리는 State::Tucked로 TUCK_SECS 동안 작아지며 가방 쪽으로 쏙 (render.tuck — 웹뷰가 줄이며 흐리게) → 그 뒤 헤르미온느 (금빛)·볼드모트의 긴 결투 한 판 (brain_duel.rs — 가방을 든 채 달아나고 쫓음)
 //! 2. sync_tucks (sync_lifts가 부름): 가방 속 해리는 가방 (헤르미온느 앞)을 따라다님. 헤르미온느의 가방 결투가 끝나면 (펑·끊김·헤르미온느가 떠남)
 //!    해리가 "Phew!" 하며 튀어나와 내려섬 (TUCK_POP), 다음 결투는 DUEL_CALM_SECS 뒤
+//!    해리가 곁에 없으면 멀리서 날아들게 하지 않음 — 해리 신경 안 쓰고 평소 결투
 //! 3. 해리가 불려 가면 (간질이기·먹이·집 가기 등) 혼자 튀어나옴. 길어도 TUCK_MAX_SECS면 나옴
 //!
 //! 주사위는 결투 주사위 (DuelMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
@@ -85,22 +86,15 @@ fn beside(a: &Pet, b: &Pet) -> bool {
     (a.body.x - b.body.x).abs() <= wz::TUCK_REACH * big && (a.body.y - b.body.y).abs() <= wz::DUEL_RISE * big
 }
 
-/// 🎒 가방 숨기기에 낄 수 있음: 한가하거나 (wizard_free) 잠깐 하던 짓은 멈추고 — 재주, 숨는 쪽 (hidee)은 졸기도, 가방 주인은 📖 책 읽기도 (책을 탁 덮음).
-/// 밝은 쪽 마법사만
-fn tuck_free(p: &Pet, hidee: bool) -> bool {
+/// 🎒 가방 주인 (헤르미온느)이 끼어들 수 있음: 한가하거나 (wizard_free) 잠깐 하던 짓은 멈추고 — 재주, 📖 책 읽기 (책을 탁 덮음). 밝은 쪽 마법사만
+fn tuck_free(p: &Pet) -> bool {
     if p.duel_side() != Some(true) {
         return false;
     }
     if p.wizard_free() {
         return true;
     }
-    let brief = match p.state {
-        State::Trick { .. } => true,
-        State::Sleep { .. } => hidee,
-        State::Study { act: super::study_moves::StudyAct::Read { .. }, .. } => !hidee,
-        _ => false,
-    };
-    brief
+    matches!(p.state, State::Trick { .. } | State::Study { act: super::study_moves::StudyAct::Read { .. }, .. })
         && p.standing.is_some()
         && !p.cfg.flies
         && !p.romp_interrupted()
@@ -110,6 +104,48 @@ fn tuck_free(p: &Pet, hidee: bool) -> bool {
         && p.hover_since.is_none()
         && !p.rider_on
         && p.juggle.carry.is_none()
+}
+
+/// 🎒 숨는 쪽 (해리)을 숨길 수 있음: 곁에 있으면 뭘 하고 있든 (걷기·졸기·재주·시무룩·인사·놀이…) 숨김 —
+/// 붙잡을 수 없는 때만 뺌 (사람이 들고 있음·공중·집·친구에게 가는 중·탈것·빗자루·다른 펫에게 들림·무언가 들고 있음·먹는 중·결투·기절·포트키)
+fn hidee_free(p: &Pet) -> bool {
+    p.duel_side() == Some(true)
+        && p.standing.is_some()
+        && !p.cfg.flies
+        && !p.thrown
+        && !p.housed
+        && !p.is_away()
+        && !p.is_heading_out()
+        && !p.rider_on
+        && !p.is_eating()
+        && p.juggle.carry.is_none()
+        && p.hoisting().is_none()
+        && !matches!(
+            p.state,
+            State::Pressed { .. }
+                | State::Dragged { .. }
+                | State::Air { .. }
+                | State::Lifted { .. }
+                | State::Tucked { .. }
+                | State::Duel { .. }
+                | State::Faint { .. }
+                | State::Drained { .. }
+                | State::Portkey { .. }
+                | State::ToVehicle { .. }
+                | State::Ride { .. }
+                | State::Broom { .. }
+                | State::Hagrid { .. }
+                | State::Hoist { .. }
+                | State::Juggle { .. }
+                | State::OnHead { .. }
+                | State::GoHome { .. }
+                | State::HomeLeap { .. }
+                | State::Housed { .. }
+                | State::Exit { .. }
+                | State::Enter { .. }
+                | State::Farewell { .. }
+                | State::Away { .. }
+        )
 }
 
 /// 🎒 a와 b가 결투 거리 안 (가로 DUEL_RANGE·세로 DUEL_RISE — 너무 붙었으면 가방을 벌리는 동안 물러남, update_duel)
@@ -125,12 +161,12 @@ pub(super) fn try_tuck<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T], v: usize) -> 
     let n = pets.len();
     let pick = (0..n).find_map(|m| {
         let a = pets[m].as_ref();
-        if m == v || !a.cfg.bag_cleaner || !tuck_free(a, false) || a.study.bag_on || !in_range(a, pets[v].as_ref()) {
+        if m == v || !a.cfg.bag_cleaner || !tuck_free(a) || a.study.bag_on || !in_range(a, pets[v].as_ref()) {
             return None;
         }
         let h = (0..n).find(|&h| {
             let b = pets[h].as_ref();
-            h != m && h != v && tuck_free(b, true) && b.duel_color() == BeamColor::Red && beside(a, b) && (a.clock >= a.duel.ready_at || b.clock >= b.duel.ready_at)
+            h != m && h != v && hidee_free(b) && b.duel_color() == BeamColor::Red && beside(a, b) && (a.clock >= a.duel.ready_at || b.clock >= b.duel.ready_at)
         })?;
         Some((m, h))
     });

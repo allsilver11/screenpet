@@ -21,7 +21,7 @@
 //! - ⚔️ 결투: 해리 (Expelliarmus)와 볼드모트 (Stupefy)가 가로 DUEL_RANGE·세로 DUEL_RISE 안에서 둘 다 한가하면 마주 봄 → DUEL_AIM_SECS 뒤
 //!   빨강·초록 빛줄기가 뻗어 가운데에서 맞부딪혀 duel_clash로 밀고 당김 → 약 15초 한 판 (합·저주·맞음·피하기·달아나기 숫자는 duel_bout.rs) →
 //!   숨 고르고 DUEL_PART_SECS 동안 흩어짐. Expelliarmus에 맞으면 지팡이가 WAND_FLY_SECS 동안 날아감. 다음은 DUEL_CALM_SECS 뒤
-//! - 🎒 가방에 숨기: 볼드모트와 결투가 시작될 때 헤르미온느 곁 (TUCK_REACH)에 해리가 있으면 TUCK_CHANCE로 "In you go!" — HIDE_SECS 동안 가방 (HIDE_BAG 크기)을 벌려 들고
+//! - 🎒 가방에 숨기: 볼드모트와 결투가 시작될 때 헤르미온느 바로 곁 (TUCK_REACH)에 해리가 있으면 (뭘 하고 있든) 늘 (TUCK_CHANCE) "In you go!" — HIDE_SECS 동안 가방 (HIDE_BAG 크기)을 벌려 들고
 //!   해리는 TUCK_SECS 동안 작아지며 쏙 → 그 뒤 결투. 끝나면 해리가 TUCK_POP으로 튀어나옴 ("Phew!"), 길어도 TUCK_MAX_SECS 안에
 //! - 🦌 패트로누스 (pet.json `patronus` — 해리 "stag" 사슴 · 헤르미온느 "otter" 수달, PatronusAnimal): 디멘터가 PATRONUS_REACH 안에 오거나,
 //!   PATRONUS_SEE 안에서 다른 펫을 시무룩하게 하면 "Expecto Patronum!" — 은빛 동물이 STAG_RUN_SECS 동안 디멘터에게 달려가
@@ -249,10 +249,11 @@ pub const WAND_SIZE: f64 = 0.32;
 /// 🔥 모닥불 크기 (불 피운 해그리드 몸 크기 배 — 장작 폭)
 pub const CAMPFIRE_SIZE: f64 = 0.45;
 
-/// 🎒 헤르미온느 곁 이만큼 (몸 크기 배 — 큰 쪽, 가로) 안의 해리를 가방에 숨김 (세로는 DUEL_RISE)
-pub const TUCK_REACH: f64 = 12.0;
-/// 🎒 셋이 모였을 때 결투가 시작되면 가방 숨기기로 가는 몫 (나머지는 평소 결투)
-pub const TUCK_CHANCE: f64 = 0.7;
+/// 🎒 헤르미온느 바로 곁 이만큼 (몸 크기 배 — 큰 쪽, 가로) 안의 해리만 가방에 숨김 (세로는 DUEL_RISE). 멀리서 날아들게 하지 않음 —
+/// 그보다 멀면 해리 신경 안 쓰고 평소 결투 (2026-11-26 사용자 요청)
+pub const TUCK_REACH: f64 = 3.0;
+/// 🎒 해리가 곁에 있을 때 결투가 시작되면 가방 숨기기로 가는 몫 (늘 — 해리가 뭘 하고 있든)
+pub const TUCK_CHANCE: f64 = 1.0;
 /// 🎒 결투 앞에 가방을 벌려 드는 시간 (초 — 그동안 해리가 쏙 들어감, 빛줄기는 그 뒤부터)
 pub const HIDE_SECS: f64 = 1.4;
 /// 🎒 해리가 작아지며 가방으로 들어가는 시간 (초)

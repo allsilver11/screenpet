@@ -109,33 +109,52 @@ fn far_apart_harry_duels_as_usual() {
     assert_eq!(pets[0].tucked_in(), None);
 }
 
-/// 🎒 결투가 막 시작되려 하면 (해리만 결투 쉬는 때가 지났어도 — 헤르미온느가 끼어듦) 대개 (TUCK_CHANCE) 헤르미온느가 해리를 숨기고 대신 결투,
-/// 나머지는 평소 결투 (해리 vs 볼드모트). 해리가 옛 곁 (몸 4배)보다 좀 멀어도 (몸 6배) 숨김. 주사위는 결투가 시작될 때 한 번만
+/// 🎒 해리가 헤르미온느 가까이 (TUCK_REACH) 있으면 결투가 시작될 때 해리가 뭘 하고 있든 (걷기·졸기·재주·시무룩·인사 등) 늘 숨김 —
+/// 해리만 결투 쉬는 때가 지났어도. 사람이 들고 있거나 공중이면 못 숨김 (평소 결투도 아님)
 #[test]
-fn hermione_usually_steps_in_even_when_only_harry_is_ready() {
+fn a_nearby_harry_is_always_hidden_whatever_he_is_doing() {
     let w = world(vec![]);
-    let (mut tucked, mut plain) = (0, 0);
-    let n = 40;
-    for seed in 0..n {
-        let size = pet_cfg().size;
-        let mut pets = vec![still(harry(), 500.0, seed * 3 + 1, &w), still(hermione(), 500.0 + 6.0 * size, seed * 3 + 2, &w), still(voldemort(), 1500.0, seed * 3 + 3, &w)];
-        for (k, p) in pets.iter_mut().enumerate() {
-            p.social_key = k as u64 + 1;
-        }
-        pets[0].duel.ready_at = 0.0;
-        pets[2].duel.ready_at = 0.0;
-        sync_lifts(&mut pets);
-        if pets[0].tucked_in() == Some(2) {
+    let size = pet_cfg().size;
+    let doing: Vec<(&str, State)> = vec![
+        ("walking", State::Move { kind: Move::Walk, remaining: 5.0 }),
+        ("sleeping", State::Sleep { remaining: 30.0 }),
+        ("trick", State::Trick { kind: crate::behavior::Trick::Wave, remaining: 1.0 }),
+        ("gloomy", State::Gloom { remaining: 3.0 }),
+        ("annoyed", State::Annoyed { remaining: 2.0, tickled_for: 0.0 }),
+    ];
+    for seed in 0..20u64 {
+        for (what, state) in &doing {
+            let mut pets = vec![still(harry(), 500.0, seed * 3 + 1, &w), still(hermione(), 500.0 + 2.5 * size, seed * 3 + 2, &w), still(voldemort(), 1500.0, seed * 3 + 3, &w)];
+            for (k, p) in pets.iter_mut().enumerate() {
+                p.social_key = k as u64 + 1;
+            }
+            pets[0].state = state.clone();
+            // 결투는 쉬는 때가 지난 쪽이 시작함 — 졸고 있는 해리 대신 헤르미온느가 (해리만 지났어도 되는 건 아래 걷기에서)
+            pets[0].duel.ready_at = 0.0;
+            pets[1].duel.ready_at = 0.0;
+            pets[2].duel.ready_at = 0.0;
+            sync_lifts(&mut pets);
+            assert_eq!(pets[0].tucked_in(), Some(2), "seed {seed}: {what} 해리도 숨김");
             assert_eq!(pets[1].dueling(), Some(3));
-            tucked += 1;
-        } else {
-            assert_eq!(pets[0].dueling(), Some(3), "seed {seed}: 아니면 평소 결투");
-            assert_eq!(pets[1].dueling(), None);
-            plain += 1;
         }
     }
-    let want = wz::TUCK_CHANCE * n as f64;
-    assert!((tucked as f64 - want).abs() <= 8.0, "숨김 {tucked} · 평소 {plain} (기대 {want})");
+    // 사람이 들고 있는 해리는 못 숨김
+    let mut pets = trio(500.0, 500.0 + 2.5 * size, 1500.0, &w);
+    pets[0].state = State::Dragged;
+    sync_lifts(&mut pets);
+    assert_eq!(pets[0].tucked_in(), None);
+}
+
+/// 🎒 해리가 가까이 없으면 (몸 TUCK_REACH배 밖) 멀리서 가방으로 날아들지 않음 — 그냥 평소 결투 (해리 vs 볼드모트)
+#[test]
+fn a_harry_a_bit_away_is_not_pulled_into_the_bag() {
+    let w = world(vec![]);
+    let size = pet_cfg().size;
+    let mut pets = trio(500.0, 500.0 + (wz::TUCK_REACH + 1.0) * size, 1500.0, &w);
+    sync_lifts(&mut pets);
+    assert_eq!(pets[0].tucked_in(), None);
+    assert_eq!(pets[0].dueling(), Some(3), "평소 결투");
+    assert!(wz::TUCK_REACH <= 3.0, "가까이일 때만");
 }
 
 /// 🎒 책을 읽던 헤르미온느도 책을 덮고 끼어듦 · 볼드모트와 너무 붙어 있으면 (DUEL_MIN 안) 가방을 벌리는 동안 서로 물러나 빛줄기를 쏠 만큼 벌어짐
