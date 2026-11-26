@@ -451,4 +451,7 @@ def test_a_guest_of_a_removed_species_is_sent_home():
     assert 'ok_or_else(|| format!("unknown species {species:?}"))?' in welcome
     call = net[net.index("let result = self.welcome_guest("):]
     declined = call[call.index("Err(e) => {"):call.index("Visit::Leave { visit_id, next, side")]  # 거절 갈래 (다음 match 갈래 앞까지)
-    assert "net.send(link, Visit::Leave {" in declined
+    # 포트키 방문은 모든 거절이 같은 모양·같은 지연으로 (refuse_visit) — 보통 방문은 그 안에서 바로 보냄
+    assert "self.refuse_visit(link, from, visit_id, is_portkey, Visit::Leave {" in declined
+    refuse = net[net.index("fn refuse_visit("):]
+    assert "net.send(link, msg)" in refuse[:refuse.index("\n    }\n")] or "net.send(link," in refuse[:refuse.index("\n    }\n")]
