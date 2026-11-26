@@ -15,10 +15,10 @@ use crate::AppState;
 const LABEL: &str = "opacity";
 /// 투명도 창 모양
 const FORM: Form = Form { label: LABEL, page: "opacity.html", title: "ScreenPet 투명도", size: (320.0, 140.0) };
-/// 떠 있는 창들에 보내는 이벤트 (값 0.05~1.0)
+/// 떠 있는 창들에 보내는 이벤트 (값 0.2~1.0)
 const EVENT: &str = "app-opacity";
 
-/// 지금 투명도 (0.05~1.0). 새 창의 init_script와 app_opacity가 읽음
+/// 지금 투명도 (0.2~1.0). 새 창의 init_script와 app_opacity가 읽음
 static CURRENT: Mutex<f64> = Mutex::new(OPACITY_DEFAULT);
 
 /// 지금 투명도
@@ -42,7 +42,7 @@ pub fn init_script() -> String {
     format!("window.__SCREENPET_OPACITY__ = {};", current())
 }
 
-/// 막대 % (5~100)
+/// 막대 % (20~100)
 fn pct() -> u32 {
     (current() * 100.0).round() as u32
 }

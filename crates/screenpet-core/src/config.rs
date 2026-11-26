@@ -79,7 +79,7 @@ pub struct Config {
     /// 📏 물건 크기 (%). 없으면 100
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     object_size_pct: Option<u32>,
-    /// 👻 떠 있는 창 전체 투명도 (0.05~1.0, 1.0 = 불투명). 없으면 1.0
+    /// 👻 떠 있는 창 전체 투명도 (0.2~1.0, 1.0 = 불투명). 없으면 1.0
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     opacity: Option<f64>,
     /// 🐾 커서 장난을 메뉴에서 껐음 (기본은 켜짐)
@@ -191,8 +191,8 @@ fn clean_size_pct(pct: Option<u32>) -> u32 {
 /// 끊은 친구를 기억하는 최대 수 (net의 MAX_FORGOTTEN과 같음)
 pub const MAX_FORGOTTEN_FRIENDS: usize = 64;
 
-/// 👻 투명도 막대의 범위 (0.05 = 거의 안 보임, 1.0 = 불투명). 0은 없음 — 펫을 잃어버리지 않게
-pub const OPACITY_RANGE: (f64, f64) = (0.05, 1.0);
+/// 👻 투명도 막대의 범위 (0.2 = 옅음, 1.0 = 불투명). 더 옅으면 Windows 합성에서 색이 거무스름해짐
+pub const OPACITY_RANGE: (f64, f64) = (0.2, 1.0);
 /// 투명도 기본값 (불투명)
 pub const OPACITY_DEFAULT: f64 = 1.0;
 
@@ -963,7 +963,7 @@ mod tests {
         assert_eq!(OPACITY_DEFAULT, 1.0);
         c.set_opacity(0.0);
         assert_eq!(c.opacity(), OPACITY_RANGE.0);
-        assert_eq!(OPACITY_RANGE, (0.05, 1.0));
+        assert_eq!(OPACITY_RANGE, (0.2, 1.0), "너무 옅으면 Windows에서 거무스름해짐");
         c.set_opacity(3.0);
         assert_eq!(c.opacity(), 1.0);
         c.set_opacity(f64::NAN);

@@ -1,5 +1,5 @@
 """👻 전체 투명도: 떠 있는 창은 모두 ui/opacity.js를 읽어 `app-opacity`를 듣고 문서 루트 opacity를 바꾼다.
-일반 창(설정·편지·도움말·친구 맺기·똥피하기 등)은 읽지 않는다. 트레이 ⚙️ 설정 ▸ 👻 투명도… 창은 5~100% 막대."""
+일반 창(설정·편지·도움말·친구 맺기·똥피하기 등)은 읽지 않는다. 트레이 ⚙️ 설정 ▸ 👻 투명도… 창은 20~100% 막대."""
 import json
 import re
 from pathlib import Path
@@ -91,7 +91,7 @@ def test_tray_settings_has_the_opacity_window():
 
 def test_opacity_window_is_a_5_to_100_slider_with_a_live_label():
     html = (UI / "opacity.html").read_text(encoding="utf-8")
-    assert re.search(r'<input id="opacity" type="range" min="5" max="100"', html)
+    assert re.search(r'<input id="opacity" type="range" min="20" max="100"', html)
     assert "<output" in html and "opacity_window.js" in html
     win = (UI / "opacity_window.js").read_text(encoding="utf-8")
     assert 'addEventListener("input", () => send(false))' in win and 'addEventListener("change", () => send(true))' in win
@@ -116,3 +116,9 @@ def test_floating_windows_may_ask_for_the_opacity():
     assert "allow-app-opacity" in floating["permissions"] and "core:event:allow-listen" in floating["permissions"]
     for label in ("pet", "guest-*", "house", "object-*", "prop-*", "hand-*", "weather-*", "trail-*", "sleigh"):
         assert label in floating["windows"], label
+
+
+def test_the_slider_stops_at_20_percent_so_pets_do_not_turn_dark():
+    """아주 옅으면 Windows 합성이 색을 거무스름하게 만듦 → 막대 최저 20%"""
+    html = (ROOT / "ui" / "opacity.html").read_text(encoding="utf-8")
+    assert 'min="20"' in html and 'min="5"' not in html
