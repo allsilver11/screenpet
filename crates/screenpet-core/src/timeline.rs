@@ -8,6 +8,7 @@
 //! - 친구가 받지 않아(바쁨·꽉 참) 곧바로 팅겨 돌아온 방문(`visit::QUICK_DECLINE_SECS` 안)은 지우고 앞 칸에 붙임
 //! - 틱 사이가 길어도(메뉴가 열려 게임 루프가 멈춤·컴퓨터 잠자기) 그 시간은 지금 자리에 그대로 쌓음 — 같은 자리는 쪼개지 않음
 //! - 먹은 것은 시간이 아니라 횟수로 셈 (먹기는 몇 초뿐임).
+//! - 🐾🐾🐾 펫마다 따로 기록함 (`PetTimelines`, 펫 uid별). 창은 펫마다 탭으로 보여 줌
 
 use std::collections::VecDeque;
 
@@ -299,6 +300,83 @@ pub struct MealView {
     pub name: String,
     /// 몇 초 전
     pub ago: f64,
+}
+
+/// 🐾🐾🐾 내 펫들의 타임라인 (펫 uid별 — 종류를 바꿔도 같은 펫이면 기록이 이어짐)
+#[derive(Debug, Clone, Default)]
+pub struct PetTimelines {
+    pets: Vec<(String, Timeline)>,
+}
+
+impl PetTimelines {
+    /// uid 펫의 타임라인 (없으면 새로 만듦)
+    fn of(&mut self, uid: &str) -> &mut Timeline {
+        let i = match self.pets.iter().position(|(u, _)| u == uid) {
+            Some(i) => i,
+            None => {
+                self.pets.push((uid.to_string(), Timeline::new()));
+                self.pets.len() - 1
+            }
+        };
+        &mut self.pets[i].1
+    }
+
+    /// uid 펫이 dt초 동안 place에 있었음 (`Timeline::tick`)
+    pub fn tick(&mut self, uid: &str, place: Option<Place>, dt: f64) {
+        self.of(uid).tick(place, dt);
+    }
+
+    /// uid 펫이 먹었음
+    pub fn ate(&mut self, uid: &str, food: Food, favorite: &FavoriteFood) {
+        self.of(uid).ate(food, favorite);
+    }
+
+    /// 지금 키우는 펫(uids)만 남김 — 보내 준 펫의 기록은 버림
+    pub fn retain(&mut self, uids: &[&str]) {
+        self.pets.retain(|(u, _)| uids.contains(&u.as_str()));
+    }
+
+    /// 기록이 있는 펫 수
+    pub fn len(&self) -> usize {
+        self.pets.len()
+    }
+
+    /// 기록이 없는지 봄
+    pub fn is_empty(&self) -> bool {
+        self.pets.is_empty()
+    }
+
+    /// 창에 보낼 내용. pets = (uid, 보일 이름) 메뉴 순서 — 기록이 없는 펫은 빈 내용
+    pub fn view(&self, pets: &[(&str, String)], friend_name: &dyn Fn(&str) -> Option<String>) -> PetTimelinesView {
+        let empty = Timeline::new();
+        PetTimelinesView {
+            pets: pets
+                .iter()
+                .map(|(uid, name)| {
+                    let t = self.pets.iter().find(|(u, _)| u == uid).map_or(&empty, |(_, t)| t);
+                    PetTimeline { uid: uid.to_string(), name: name.clone(), view: t.view(friend_name) }
+                })
+                .collect(),
+        }
+    }
+}
+
+/// 🐾🐾🐾 타임라인 창 내용: 펫마다 하나 (메뉴 순서)
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PetTimelinesView {
+    /// 펫마다 (첫째부터)
+    pub pets: Vec<PetTimeline>,
+}
+
+/// 펫 하나의 최근 한 시간
+#[derive(Debug, Clone, Serialize)]
+pub struct PetTimeline {
+    /// 펫 uid (창이 고른 탭을 기억하는 데 씀)
+    pub uid: String,
+    /// 보일 이름 ("고양이" / 여럿이면 "첫째 고양이")
+    pub name: String,
+    /// 그 펫의 내용
+    pub view: TimelineView,
 }
 
 #[cfg(test)]

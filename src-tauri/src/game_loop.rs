@@ -886,7 +886,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                         if own.pet.feed_result(result, food) {
                             if let FeedResult::Ate { leveled_up } = result {
                                 own.track.pending_stage |= leveled_up;
-                                timeline.ate(&app, food, &favorite_of(&own.entry), &config);
+                                timeline.ate(&app, own.uid(), food, &favorite_of(&own.entry), &config);
                             }
                             ate_any = true;
                         } else {
@@ -1485,7 +1485,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                 if own.pet.eat_from_hand(result, food) {
                     if let FeedResult::Ate { leveled_up } = result {
                         own.track.pending_stage |= leveled_up;
-                        timeline.ate(&app, food, &favorite_of(&own.entry), &config);
+                        timeline.ate(&app, own.uid(), food, &favorite_of(&own.entry), &config);
                         hand_win.bite();
                         done = true;
                     }
@@ -1930,7 +1930,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         // 🧳 늦춘 포트키 답 보내기 · 답이 없는 내 마법사 데려오기
         network.tick_portkeys(&mut slots[..n]);
         network.tick_mailbox(&app, &mut slots, now);
-        timeline.tick(&app, real_dt, &slots[OWN], slots[OWN].uid().and_then(|u| network.away_friend_of(u)), &config);
+        timeline.tick(&app, real_dt, &slots[..own_count(&slots)], |u| network.away_friend_of(u), &config);
         if dodge.tick(&app, dt, &mut slots[OWN], &mut config, &network) {
             save_config(&app, &mut config);
         }

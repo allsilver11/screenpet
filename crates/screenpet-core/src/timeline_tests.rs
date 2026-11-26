@@ -211,3 +211,49 @@ fn a_bounced_visit_leaves_no_row() {
     run(&mut t, Some(Place::Play), 30.0);
     assert_eq!(shape(&t).len(), 3);
 }
+
+/// 🐾🐾🐾 펫마다 한 칸씩 run
+fn run_pets(t: &mut PetTimelines, places: &[(&str, Place)], secs: f64) {
+    for _ in 0..(secs / DT).round() as usize {
+        for (uid, p) in places {
+            t.tick(uid, Some(p.clone()), DT);
+        }
+    }
+}
+
+#[test]
+fn each_pet_keeps_its_own_hour() {
+    // 첫째는 집에서 놀고 둘째는 친구네 가 있음 — 서로 섞이지 않음
+    let mut t = PetTimelines::default();
+    run_pets(&mut t, &[("a", Place::Play), ("b", friend("f"))], 120.0);
+    t.ate("a", Food::Meal, &milk());
+    let v = t.view(&[("a", "첫째 고양이".into()), ("b", "둘째 강아지".into())], &|_| None);
+    let names: Vec<_> = v.pets.iter().map(|p| (p.uid.as_str(), p.name.as_str())).collect();
+    assert_eq!(names, vec![("a", "첫째 고양이"), ("b", "둘째 강아지")]);
+    assert_eq!(v.pets[0].view.rows[0].label, "집에서 놀기");
+    assert_eq!(v.pets[1].view.rows[0].label, "친구네 놀러 감");
+    assert_eq!(v.pets[0].view.foods.len(), 1);
+    assert!(v.pets[1].view.foods.is_empty(), "먹은 건 먹은 펫에게만");
+}
+
+#[test]
+fn pets_show_in_menu_order_and_a_new_pet_starts_empty() {
+    let mut t = PetTimelines::default();
+    run_pets(&mut t, &[("b", Place::House)], 30.0);
+    // 순서는 기록 순서가 아니라 넘겨준 (메뉴) 순서. 기록이 없는 새 펫도 빈 칸으로 나옴
+    let v = t.view(&[("c", "셋째 토끼".into()), ("b", "둘째 강아지".into())], &|_| None);
+    assert_eq!(v.pets.iter().map(|p| p.uid.as_str()).collect::<Vec<_>>(), vec!["c", "b"]);
+    assert!(v.pets[0].view.rows.is_empty() && v.pets[0].view.now.is_none());
+    assert_eq!(v.pets[1].view.rows[0].label, "하우스");
+}
+
+#[test]
+fn a_pet_sent_away_drops_its_record() {
+    // 보내 준 펫의 기록은 버림 — 메모리가 쌓이지 않고 창에도 안 나옴
+    let mut t = PetTimelines::default();
+    run_pets(&mut t, &[("a", Place::Play), ("b", Place::Play)], 10.0);
+    t.retain(&["a"]);
+    assert_eq!(t.len(), 1);
+    let v = t.view(&[("a", "고양이".into())], &|_| None);
+    assert_eq!(v.pets.len(), 1);
+}

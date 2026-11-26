@@ -1,4 +1,5 @@
-// 🕐 최근 한 시간 창: 백엔드가 만든 내용(`timeline_state` 커맨드, 1초마다 `timeline-state` 이벤트 — screenpet_core::timeline::TimelineView)을 그림.
+// 🕐 최근 한 시간 창: 백엔드가 만든 내용(`timeline_state` 커맨드, 1초마다 `timeline-state` 이벤트 — screenpet_core::timeline::PetTimelinesView)을 그림.
+// 🐾🐾🐾 펫이 여럿이면 위에 펫마다 탭 — 고른 탭(uid)은 이벤트가 와도 그대로, 그 펫을 보내 주면 첫째로.
 // 친구 이름·음식 이름이 들어 있으니 글자는 textContent로만 넣음. 시각은 받은 때의 시계에서 "몇 초 전"을 빼서 만듦.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
@@ -122,9 +123,35 @@ function show(view, nowMs = Date.now()) {
   fit();
 }
 
+// 고른 탭의 펫 uid (없으면 첫째)
+let picked = null;
+// 마지막으로 받은 내용 (탭을 누르면 다시 그림)
+let latest = { pets: [] };
+
+// 펫 탭과 고른 펫의 내용을 그림
+function render(all) {
+  latest = all || { pets: [] };
+  const pets = latest.pets || [];
+  const pet = pets.find((p) => p.uid === picked) || pets[0];
+  picked = pet ? pet.uid : null;
+  const tabs = document.getElementById("tabs");
+  tabs.textContent = "";
+  tabs.hidden = pets.length < 2;
+  for (const p of pets) {
+    const b = el("button", p.uid === picked ? "tab on" : "tab", p.name);
+    b.type = "button";
+    b.onclick = () => {
+      picked = p.uid;
+      render(latest);
+    };
+    tabs.append(b);
+  }
+  show(pet ? pet.view : {});
+}
+
 setupFormKeys();
 
 (async () => {
-  await here.listen("timeline-state", (e) => show(e.payload));
-  show(await invoke("timeline_state"));
+  await here.listen("timeline-state", (e) => render(e.payload));
+  render(await invoke("timeline_state"));
 })();

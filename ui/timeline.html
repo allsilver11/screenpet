@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>🕐 최근 한 시간</title>
-    <!-- 메뉴 🐾 내 펫 ▸ 🕐 최근 한 시간 (src-tauri/src/timeline.rs): 내 펫이 지난 한 시간 동안 어디에 있었고 무엇을 먹었는지. 내용은 timeline.js가 채운다 -->
+    <!-- 메뉴 🎮 놀기 ▸ 🕐 최근 한 시간 (src-tauri/src/timeline.rs): 내 펫마다(여럿이면 탭) 지난 한 시간 동안 어디에 있었고 무엇을 먹었는지. 내용은 timeline.js가 채운다 -->
     <style>
       html, body { margin: 0; }
       body {
@@ -46,11 +46,16 @@
       .entry { display: grid; grid-template-columns: 82px 10px 1fr; gap: 7px; align-items: center; padding: 4px 0; }
       .entry .when { color: #8a7660; font-variant-numeric: tabular-nums; font-size: 11px; }
       .entry.meal .name { color: #8a7660; }
+      /* 🐾🐾🐾 펫 탭 (둘 이상일 때만) */
+      .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+      .tab { font: inherit; background: #fff; border: 1px solid #ecdcc4; border-radius: 999px; padding: 3px 11px; color: #8a7660; cursor: pointer; }
+      .tab.on { background: #f0a860; border-color: #f0a860; color: #fff; font-weight: 600; }
       [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <h1>🕐 최근 한 시간</h1>
+    <div class="tabs" id="tabs" hidden></div>
     <div class="sub" id="sum"></div>
     <div class="strip" id="strip"></div>
     <div class="bites" id="bites"></div>

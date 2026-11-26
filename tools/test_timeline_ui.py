@@ -17,7 +17,7 @@ class Node {
   append(...xs) { this.children.push(...xs); }
   set innerHTML(v) { throw new Error("innerHTML must not be used"); }
 }
-const byId = Object.fromEntries(["sum", "strip", "bites", "foods", "food-box", "log"].map((id) => [id, new Node("div")]));
+const byId = Object.fromEntries(["tabs", "sum", "strip", "bites", "foods", "food-box", "log"].map((id) => [id, new Node("div")]));
 // 내용 높이 = 순서대로 줄 수에 비례 (창 맞추기 확인용)
 global.document = { createElement: (t) => new Node(t), getElementById: (id) => byId[id],
   body: { getBoundingClientRect: () => ({ height: 100 + 20 * kids(byId.log).length }) } };
@@ -59,6 +59,9 @@ async function advance(ms) {
   clockMs = end;
 }
 const snap = () => ({
+  tabs: kids(byId.tabs).map((b) => ({ text: b.textContent, on: b.className.includes("on") })),
+  tabsHidden: !!byId.tabs.hidden,
+  click: (i) => kids(byId.tabs)[i].onclick(),
   sum: byId.sum.textContent,
   strip: kids(byId.strip).map((b) => ({ left: b.style.left, width: b.style.width, bg: b.style.background, title: b.title })),
   bites: kids(byId.bites).map((b) => ({ text: b.textContent, left: b.style.left })),
@@ -72,6 +75,13 @@ require("vm").runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
 (async () => {
   await settle();
   const out = { first: snap() };
+  if (process.argv[4] === "click") {
+    // 둘째 탭을 누르면 그 펫 것을 그림. 다음 이벤트가 와도 고른 탭이 그대로
+    kids(byId.tabs)[1].onclick();
+    out.clicked = snap();
+    handler({ payload: VIEWS[0] });
+    out.after = snap();
+  }
   if (VIEWS.length > 1) {
     // 1초 뒤 이벤트가 오면 바로 그린다 (직접 묻지 않는다)
     await advance(1000);
@@ -84,10 +94,16 @@ require("vm").runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
 })();
 """
 
-def render(tmp_path, *views):
+def one_pet(view):
+    """펫 하나짜리 창 내용 (screenpet_core::timeline::PetTimelinesView)"""
+    return view if "pets" in view else {"pets": [{"uid": "u1", "name": "고양이", "view": view}]}
+
+
+def render(tmp_path, *views, click=False):
     script = tmp_path / "harness.js"
-    script.write_text(HARNESS, encoding="utf-8")
-    return json.loads(run_node(script, UI / "timeline.js", json.dumps(list(views)), timeout=30).stdout)
+    script.write_text(HARNESS.replace("  click: (i) => kids(byId.tabs)[i].onclick(),\n", ""), encoding="utf-8")
+    args = [script, UI / "timeline.js", json.dumps([one_pet(v) for v in views])] + (["click"] if click else [])
+    return json.loads(run_node(*args, timeout=30).stdout)
 
 
 def test_command_menu_and_capability_are_wired():
@@ -114,6 +130,17 @@ def test_every_meal_is_recorded():
     # 그릇·직접 주기 둘 다 먹으면 타임라인에 적는다
     rs = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
     assert rs.count("care.feed(") == rs.count("timeline.ate(") == 2
+    # 🐾🐾🐾 먹은 펫의 기록에 적음 (첫째 것에 몰아 적지 않음)
+    assert rs.count("timeline.ate(&app, own.uid()") == 2
+
+
+def test_every_own_pet_is_tracked():
+    # 첫째만이 아니라 내 펫 모두를 기록함
+    rs = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    assert "timeline.tick(&app, real_dt, &slots[..own_count(&slots)]" in rs
+    assert "timeline.tick(&app, real_dt, &slots[OWN]" not in rs
+    fx = (ROOT / "src-tauri" / "src" / "timeline.rs").read_text(encoding="utf-8")
+    assert "PetTimelines" in fx and "own_pet_name(" in fx and ".retain(" in fx
 
 
 def test_page_is_plain():
@@ -206,3 +233,36 @@ def test_fitting_the_window_does_not_take_focus():
     fit = src[src.index("pub fn timeline_fit") :]
     assert "resize_quietly" in fit and "move_quietly" in fit
     assert ".set_position(" not in fit
+
+
+@needs_node
+def test_one_pet_has_no_tabs(tmp_path):
+    r = render(tmp_path, ground_view(100))["first"]
+    assert r["tabsHidden"]
+
+
+@needs_node
+def test_several_pets_get_tabs_and_a_tab_shows_that_pet(tmp_path):
+    two = {"pets": [
+        {"uid": "u1", "name": "첫째 고양이", "view": ground_view(100)},
+        {"uid": "u2", "name": "둘째 <i>강아지</i>", "view": full_view()},
+    ]}
+    r = render(tmp_path, two, click=True)
+    first = r["first"]
+    assert not first["tabsHidden"]
+    assert [t["text"] for t in first["tabs"]] == ["첫째 고양이", "둘째 <i>강아지</i>"], "이름은 글자 그대로"
+    assert [t["on"] for t in first["tabs"]] == [True, False]
+    assert first["sum"] == "지금: 🎈 집에서 놀기 (1분째)"
+    assert [t["on"] for t in r["clicked"]["tabs"]] == [False, True]
+    assert r["clicked"]["sum"] == "지금: 🎈 집에서 놀기 (12분째)" and len(r["clicked"]["log"]) == 6
+    # 1초마다 오는 이벤트가 고른 탭을 첫째로 되돌리지 않음
+    assert r["after"]["sum"] == r["clicked"]["sum"]
+
+
+@needs_node
+def test_a_tab_whose_pet_was_sent_away_falls_back_to_the_first(tmp_path):
+    two = {"pets": [{"uid": "u1", "name": "첫째 고양이", "view": ground_view(100)},
+                    {"uid": "u2", "name": "둘째 강아지", "view": full_view()}]}
+    one = {"pets": [{"uid": "u1", "name": "고양이", "view": ground_view(100)}]}
+    r = render(tmp_path, two, one)
+    assert r["event"]["tabsHidden"] and r["event"]["sum"] == "지금: 🎈 집에서 놀기 (1분째)"

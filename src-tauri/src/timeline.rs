@@ -1,12 +1,12 @@
-//! 🕐 최근 한 시간 — 내 동물이 어디에(집에서 놀기·하우스·친구네) 얼마나 있었는지, 무엇을 먹었는지
-//! (규칙은 screenpet_core::timeline, 여기는 창). 기록은 메모리에만 있음: 저장하지 않고 친구에게 보내지 않음.
+//! 🕐 최근 한 시간 — 내 펫마다 어디에(집에서 놀기·하우스·친구네) 얼마나 있었는지, 무엇을 먹었는지
+//! (규칙은 screenpet_core::timeline, 여기는 창 — 펫이 여럿이면 탭). 기록은 메모리에만 있음: 저장하지 않고 친구에게 보내지 않음.
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use screenpet_core::care::Food;
 use screenpet_core::config::Config;
 use screenpet_core::manifest::FavoriteFood;
-use screenpet_core::timeline::{self, Timeline, TimelineView};
+use screenpet_core::timeline::{self, PetTimelines, PetTimelinesView};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::slots::Slot;
@@ -23,12 +23,14 @@ const SCREEN_MARGIN: f64 = 24.0;
 const PUBLISH_EVERY: Duration = Duration::from_secs(1);
 
 /// 창이 처음 열릴 때 읽는 지금 내용 (그 뒤로는 `timeline-state` 이벤트)
-static VIEW: Mutex<Option<TimelineView>> = Mutex::new(None);
+static VIEW: Mutex<Option<PetTimelinesView>> = Mutex::new(None);
 
 /// 최근 한 시간 기록과 창 보내기 상태임 (게임 루프가 가짐)
 #[derive(Default)]
 pub struct TimelineFx {
-    timeline: Timeline,
+    timeline: PetTimelines,
+    /// 지금 내 펫들 (uid, 보일 이름) — 메뉴 순서. 매 틱 맞춤
+    pets: Vec<(String, String)>,
     last_publish: Option<Instant>,
 }
 
@@ -38,11 +40,20 @@ impl TimelineFx {
         Self::default()
     }
 
-    /// 매 틱. real_dt = 지난 틱부터 실제로 흐른 초 (게임 루프의 dt처럼 자르지 않음 — 컴퓨터가 잠들었던 긴 틈도 지금 자리에 더함)
-    pub fn tick(&mut self, app: &AppHandle, real_dt: f64, own: &Slot, away_friend: Option<&str>, config: &Config) {
-        // 하우스에서 나와 문 앞에서 먹고 다시 들어갈 참이면 하우스로 셈 (잠깐 나온 걸 놀기로 쪼개지 않음)
-        let housed = own.pet.is_housed() || own.pet.returns_home();
-        self.timeline.tick(timeline::place_of(housed, own.pet.is_away(), away_friend), real_dt);
+    /// 매 틱. real_dt = 지난 틱부터 실제로 흐른 초 (게임 루프의 dt처럼 자르지 않음 — 컴퓨터가 잠들었던 긴 틈도 지금 자리에 더함).
+    /// own = 내 펫 슬롯들 (메뉴 순서), away_friend = 펫 uid → 가 있는 친구 id
+    pub fn tick<'a>(&mut self, app: &AppHandle, real_dt: f64, own: &[Slot], away_friend: impl Fn(&str) -> Option<&'a str>, config: &Config) {
+        self.pets.clear();
+        for (i, slot) in own.iter().enumerate() {
+            let Some(uid) = slot.uid() else { continue };
+            // 하우스에서 나와 문 앞에서 먹고 다시 들어갈 참이면 하우스로 셈 (잠깐 나온 걸 놀기로 쪼개지 않음)
+            let housed = slot.pet.is_housed() || slot.pet.returns_home();
+            self.timeline.tick(uid, timeline::place_of(housed, slot.pet.is_away(), away_friend(uid)), real_dt);
+            self.pets.push((uid.to_string(), crate::tray::own_pet_name(i, own.len(), &slot.entry.manifest.name)));
+        }
+        // 보내 준 펫의 기록은 버림
+        let uids: Vec<&str> = self.pets.iter().map(|(u, _)| u.as_str()).collect();
+        self.timeline.retain(&uids);
         let now = Instant::now();
         if self.last_publish.is_some_and(|t| now - t < PUBLISH_EVERY) {
             return;
@@ -53,9 +64,10 @@ impl TimelineFx {
         }
     }
 
-    /// 내 동물이 먹었음 — 바로 창에 보임
-    pub fn ate(&mut self, app: &AppHandle, food: Food, favorite: &FavoriteFood, config: &Config) {
-        self.timeline.ate(food, favorite);
+    /// uid 펫이 먹었음 — 바로 창에 보임 (uid가 없으면 손님이라 안 적음)
+    pub fn ate(&mut self, app: &AppHandle, uid: Option<&str>, food: Food, favorite: &FavoriteFood, config: &Config) {
+        let Some(uid) = uid else { return };
+        self.timeline.ate(uid, food, favorite);
         if app.get_webview_window(LABEL).is_some() {
             self.publish(app, config);
         }
@@ -63,7 +75,8 @@ impl TimelineFx {
 
     /// 지금 내용을 창에 보냄 (창이 없으면 첫 로드용으로 남기기만)
     fn publish(&self, app: &AppHandle, config: &Config) {
-        let view = self.timeline.view(&|id| config.person_name(id).map(str::to_string));
+        let pets: Vec<(&str, String)> = self.pets.iter().map(|(u, n)| (u.as_str(), n.clone())).collect();
+        let view = self.timeline.view(&pets, &|id| config.person_name(id).map(str::to_string));
         *VIEW.lock().unwrap() = Some(view.clone());
         let _ = app.emit_to(LABEL, "timeline-state", view);
     }
@@ -93,7 +106,7 @@ impl TimelineFx {
 
 /// 타임라인 창의 지금 내용 (첫 로드용)
 #[tauri::command]
-pub fn timeline_state(window: WebviewWindow) -> Result<TimelineView, String> {
+pub fn timeline_state(window: WebviewWindow) -> Result<PetTimelinesView, String> {
     if window.label() != LABEL {
         return Err("wrong window".into());
     }
