@@ -254,9 +254,9 @@ def test_my_two_computers_share_the_pet_and_its_growth():
     arm = GAME_LOOP[GAME_LOOP.index("NetEvent::DeviceState {") :]
     arm = arm[: arm.index("Input::Net(input) =>")]
     assert "linked::adopt_shared(" in arm and "apply_own_stage(" in arm and "set_hungry(" in arm
-    assert "Input::SetPet { entry, remote: true }" in arm, "the pet switches through the usual path"
+    assert "Input::SetPet { entry, remote: true, label: None }" in arm, "the pet switches through the usual path"
     assert "share_state(" not in arm, "what came from the other computer is not sent back"
-    set_pet = GAME_LOOP[GAME_LOOP.index("Input::SetPet { entry: next, remote } =>") :]
+    set_pet = GAME_LOOP[GAME_LOOP.index("Input::SetPet { entry: next, remote, label } =>") :]
     set_pet = set_pet[: set_pet.index("Input::SetTint(")]
     assert "menu_dirty = true;" in set_pet and "if !remote" in set_pet
     # 먹이기·성장 멈추기·처음부터·펫 바꾸기·점심 배고픔·주기적 저장 때 알린다
@@ -293,7 +293,7 @@ def test_heumul_color_menu_sits_in_each_tintable_pets_submenu():
     sync = sync[: sync.index("\n}\n")]
     assert "flat_map(|m| &m.tints)" in sync
     game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
-    assert "crate::tray::sync_pets(&app);" in game
+    assert "crate::tray::sync_pets(&app, menu_dirty);" in game
     assert "Input::SetTint(tint) => {" in game and "own.set_tint(&app, tint);" in game and "config.tint = tint;" in game
     assert "🎨 흐물이 색 ▸" in HELP
 
@@ -355,7 +355,7 @@ def test_refresh_and_restart_sit_right_above_quit():
     assert "app.exit(" not in arm and "std::process::exit" not in game
     refresh = game[game.index("Input::Refresh => {") :]
     refresh = refresh[: refresh.index("Input::SaveAndStop(done)")]
-    assert "refresh_windows(" in refresh and "resend_at = Some(" in refresh
+    assert "refresh_windows(" in refresh and "Input::PageReady(label) =>" in game and "resend_to(" in game
     assert "🔄 새로고침" in HELP and "♻️ 재시작" in HELP
 
 

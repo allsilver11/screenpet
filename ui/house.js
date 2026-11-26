@@ -10,7 +10,7 @@ const { invoke } = window.__TAURI__.core;
 // 전역 event.listen은 손님 창 앞으로 보낸 pet-render까지 받음 — 이 창 앞으로 온 것만 들음
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 // 이 창 앞으로 온 이벤트만 들음
-const listen = (event, handler) => here.listen(event, handler);
+const listen = (event, handler) => (window.spOn || ((t, e, h) => t.listen(e, h)))(here, event, handler);
 
 const houseEl = document.getElementById("house");
 const frontEl = document.getElementById("house-front");

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use screenpet_log::log;
 use screenpet_core::update::{self, Check, MenuState, Platform, Release, UpdateError, Version};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use crate::game_loop::Input;
 use crate::AppState;
@@ -117,7 +117,7 @@ fn show(app: &AppHandle, state: MenuState, say: bool) {
     if say {
         if let Some(line) = state.bubble() {
             let target = if app.state::<AppState>().housed.load(Ordering::Relaxed) { crate::house::LABEL } else { crate::slots::OWN_LABEL };
-            let _ = app.emit_to(target, "pet-say-text", line);
+            crate::pages::send(&app, &target, "pet-say-text", line);
         }
     }
 }

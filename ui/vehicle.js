@@ -99,13 +99,13 @@ art.addEventListener("contextmenu", () => invoke("vehicle_menu"));
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 window.addEventListener("dragstart", (e) => e.preventDefault());
 
-here.listen("vehicle-pose", ({ payload: p }) => {
+(window.spOn || ((t, e, h) => t.listen(e, h)))(here, "vehicle-pose", ({ payload: p }) => {
   if (p.bump && !pose.bump) bump();
   pose = p;
   applyPose();
   wake();
 });
-here.listen("vehicle-fx", ({ payload: p }) => {
+(window.spOn || ((t, e, h) => t.listen(e, h)))(here, "vehicle-fx", ({ payload: p }) => {
   if (p.kind === "screech") screech();
   else if (p.kind === "crash") crash();
 });

@@ -299,11 +299,11 @@ fitWebCanvas();
 if (window.__TAURI__) {
   // 이 창으로 온 것만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
   const me = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
-  me.listen("trail-webs", (e) => addWebs(e.payload));
-  me.listen("trail-lines", (e) => setWebLines(e.payload));
-  me.listen("trail-web-drop", (e) => dropWebs(Array.isArray(e.payload) ? e.payload : []));
-  me.listen("trail-web-clear", () => dropWebs(null));
-  me.listen("trail-web-move", (e) => moveWebs(Array.isArray(e.payload) ? e.payload : []));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(me, "trail-webs", (e) => addWebs(e.payload));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(me, "trail-lines", (e) => setWebLines(e.payload));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(me, "trail-web-drop", (e) => dropWebs(Array.isArray(e.payload) ? e.payload : []));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(me, "trail-web-clear", () => dropWebs(null));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(me, "trail-web-move", (e) => moveWebs(Array.isArray(e.payload) ? e.payload : []));
 } else if (new URLSearchParams(location.search).get("web")) {
   webPreview();
 }

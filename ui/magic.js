@@ -825,7 +825,7 @@ fitMagicCanvas();
 
 if (window.__TAURI__) {
   // 이 창으로 온 것만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
-  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("trail-magic", (e) => setMagic(e.payload));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(window.__TAURI__.webviewWindow.getCurrentWebviewWindow(), "trail-magic", (e) => setMagic(e.payload));
 } else if (new URLSearchParams(location.search).get("magic")) {
   // 앱 없이 브라우저에서 보기 (개발용): 결투 · 달리는 사슴 · 헤엄치는 수달 · 영혼 줄기 · 기는 뱀 · 구석의 서리
   document.documentElement.style.background = "#1d2030";

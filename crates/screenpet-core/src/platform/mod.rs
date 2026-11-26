@@ -48,6 +48,10 @@ pub trait WindowSource: Send {
     fn idle_seconds(&mut self) -> Option<f64> {
         None
     }
+    /// 💤 OS가 알려 준 화면 잠금·풀기·절전에서 깸 누적 수 (wake.rs). 알 수 없는 OS는 늘 0 — 그러면 벽시계·모니터로만 봄
+    fn session_events(&mut self) -> crate::wake::SessionEvents {
+        crate::wake::SessionEvents::default()
+    }
     /// 📌 창(windows()의 id)을 띄운 앱의 아이콘을 한 변 px의 RGBA로 (작업표시줄 장난감 — taskbar.rs). 못 읽으면 None — 그러면 장난감이 생기지 않을 뿐임
     /// 그림 칸만 읽음 (앱 이름·창 제목·경로는 돌려주지도 남기지도 않음). 권한을 새로 묻지 않음. 느릴 수 있어 게임 루프 밖 스레드에서 부름
     fn app_icon(&mut self, _window: u64, _px: u32) -> Option<IconImage> {

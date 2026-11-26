@@ -125,7 +125,7 @@ fitCanvas();
 
 if (window.__TAURI__) {
   // 이 창으로 온 구름만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
-  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("trail-puffs", (e) => addPuffs(e.payload));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(window.__TAURI__.webviewWindow.getCurrentWebviewWindow(), "trail-puffs", (e) => addPuffs(e.payload));
 } else if (new URLSearchParams(location.search).get("preview")) {
   devPreview();
 }

@@ -747,8 +747,8 @@ fitCanvas();
 
 if (window.__TAURI__) {
   // 이 창으로 온 장면만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
-  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-flurry", (e) => addFlurry(e.payload));
-  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-scene", (e) => applyScene(e.payload));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(window.__TAURI__.webviewWindow.getCurrentWebviewWindow(), "weather-flurry", (e) => addFlurry(e.payload));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(window.__TAURI__.webviewWindow.getCurrentWebviewWindow(), "weather-scene", (e) => applyScene(e.payload));
 } else {
   devPreview();
 }

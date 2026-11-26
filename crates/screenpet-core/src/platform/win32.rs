@@ -147,6 +147,10 @@ impl WindowSource for Win32Source {
     // ---- end typing sensor
 
     /// 틱 수는 49.7일마다 한 바퀴 돎 — wrapping_sub면 그때도 맞음
+    fn session_events(&mut self) -> crate::wake::SessionEvents {
+        session_watch::events()
+    }
+
     fn idle_seconds(&mut self) -> Option<f64> {
         let mut info = LASTINPUTINFO { cbSize: size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
         unsafe {
@@ -476,5 +480,79 @@ impl crate::lumos::ThemeBackend for Win32Theme {
             SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, WPARAM(0), LPARAM(area.as_ptr() as isize), SMTO_ABORTIFHUNG, 200, None);
         }
         ok
+    }
+}
+
+/// 💤 화면 잠금·풀기 (WM_WTSSESSION_CHANGE — WTSRegisterSessionNotification)와 절전에서 깸 (WM_POWERBROADCAST)을 세는 숨은 창.
+/// 따로 스레드 하나가 보이지 않는 최상위 창을 만들고 메시지를 돌림 (알림은 최상위 창에만 옴). 처음 물을 때 띄움
+mod session_watch {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Once;
+
+    use windows::core::w;
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::System::RemoteDesktop::{WTSRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW, TranslateMessage, MSG, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND,
+        WINDOW_EX_STYLE, WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSW, WS_OVERLAPPED, WTS_SESSION_LOCK, WTS_SESSION_UNLOCK,
+    };
+
+    use crate::wake::SessionEvents;
+
+    /// 잠금 수
+    static LOCKS: AtomicU32 = AtomicU32::new(0);
+    /// 풀기 수
+    static UNLOCKS: AtomicU32 = AtomicU32::new(0);
+    /// 깸 수
+    static RESUMES: AtomicU32 = AtomicU32::new(0);
+    /// 감시 스레드는 한 번만
+    static START: Once = Once::new();
+
+    /// 지금까지 센 수 (처음 부르면 감시 스레드를 띄움)
+    pub fn events() -> SessionEvents {
+        START.call_once(|| {
+            let _ = std::thread::Builder::new().name("session-watch".into()).spawn(run);
+        });
+        SessionEvents { locks: LOCKS.load(Ordering::Relaxed), unlocks: UNLOCKS.load(Ordering::Relaxed), resumes: RESUMES.load(Ordering::Relaxed) }
+    }
+
+    /// 숨은 창을 만들고 알림을 받으며 메시지를 돌림 (앱이 끝날 때까지)
+    fn run() {
+        unsafe {
+            let Ok(module) = GetModuleHandleW(None) else { return };
+            let class = w!("ScreenPetSessionWatch");
+            let wc = WNDCLASSW { lpfnWndProc: Some(proc), hInstance: module.into(), lpszClassName: class, ..Default::default() };
+            if RegisterClassW(&wc) == 0 {
+                return;
+            }
+            // 보이지 않는 최상위 창 (ShowWindow를 부르지 않음 — 메시지 전용 창은 세션 알림을 못 받을 수 있음)
+            let Ok(hwnd) = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!(""), WS_OVERLAPPED, 0, 0, 0, 0, None, None, module, None) else { return };
+            if WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION).is_err() {
+                eprintln!("session-watch: could not register for lock/unlock notices");
+            }
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    }
+
+    /// 숨은 창의 메시지 처리: 잠금·풀기·깸만 셈
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        match msg {
+            WM_WTSSESSION_CHANGE if wparam.0 as u32 == WTS_SESSION_LOCK => {
+                LOCKS.fetch_add(1, Ordering::Relaxed);
+            }
+            WM_WTSSESSION_CHANGE if wparam.0 as u32 == WTS_SESSION_UNLOCK => {
+                UNLOCKS.fetch_add(1, Ordering::Relaxed);
+            }
+            WM_POWERBROADCAST if matches!(wparam.0 as u32, PBT_APMRESUMEAUTOMATIC | PBT_APMRESUMESUSPEND) => {
+                RESUMES.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+        DefWindowProcW(hwnd, msg, wparam, lparam)
     }
 }

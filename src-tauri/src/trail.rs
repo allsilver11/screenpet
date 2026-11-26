@@ -257,6 +257,38 @@ impl TrailFx {
         Self::default()
     }
 
+    /// 🔄 구름·낙서·거미집 덮개 창 웹뷰를 다시 읽음 (새로고침·깨어남). 남은 거미집·줄·스니치·마법은 페이지가 준비되면 resend가 다시 보냄
+    pub fn reload_windows(&mut self) {
+        for o in &self.overlays {
+            let _ = o.window.reload();
+        }
+    }
+
+    /// 다시 읽은 덮개 창(label)에 지금 것을 다시 보냄: 아직 남은 거미집 (지난 시간 그대로 — 짜는 그림 없이 바로),
+    /// 줄·스니치·마법은 마지막으로 보낸 것을 잊어 다음 틱에 다시 보냄. 구름·낙서는 금방 사라지는 것이라 다시 보내지 않음
+    pub fn resend(&mut self, label: &str, now: Instant) {
+        let Some(o) = self.overlays.iter_mut().find(|o| o.label == label) else { return };
+        o.lines.clear();
+        o.snitches.clear();
+        o.magic.clear();
+        o.webs.clear();
+        for t in self.webs.iter().filter(|t| t.label == label && t.until > now) {
+            let born = t.until.checked_sub(WEB_LIFE).unwrap_or(now);
+            let wire = WebWire {
+                id: t.id,
+                x: (t.x - o.wa.left) / o.scale,
+                y: (t.y - o.wa.top) / o.scale,
+                corner: t.corner,
+                size: t.size / o.scale,
+                age: 0.0,
+                life: WEB_LIFE_SECS,
+                shots: 0,
+                build: 0.0,
+            };
+            o.webs.push((born, wire));
+        }
+    }
+
     /// 게임 루프 스레드에서 매 틱 (창 만들기가 메인 스레드를 기다림)
     pub fn tick(&mut self, app: &AppHandle, now: Instant, dt: f64, away: bool, slots: &mut [Slot]) {
         if away || crate::windows_hidden(app) {

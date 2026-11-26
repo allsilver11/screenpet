@@ -109,22 +109,22 @@ thing.addEventListener("contextmenu", () => invoke("object_menu"));
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 window.addEventListener("dragstart", (e) => e.preventDefault());
 
-here.listen("object-pose", ({ payload: p }) => applyPose(p));
+(window.spOn || ((t, e, h) => t.listen(e, h)))(here, "object-pose", ({ payload: p }) => applyPose(p));
 // 크기 조절 창에서 물건 크기를 바꿨음
-here.listen("object-scale", ({ payload: p }) => {
+(window.spOn || ((t, e, h) => t.listen(e, h)))(here, "object-scale", ({ payload: p }) => {
   DRAW_SCALE = p.scale;
   side = p.side;
   layout();
   applyPose(lastPose);
 });
-here.listen("object-sticker", ({ payload: on }) => {
+(window.spOn || ((t, e, h) => t.listen(e, h)))(here, "object-sticker", ({ payload: on }) => {
   sticker.hidden = !on;
 });
-here.listen("object-note", ({ payload: text }) => {
+(window.spOn || ((t, e, h) => t.listen(e, h)))(here, "object-note", ({ payload: text }) => {
   note.textContent = text;
   note.hidden = false;
 });
-here.listen("object-note-end", () => {
+(window.spOn || ((t, e, h) => t.listen(e, h)))(here, "object-note-end", () => {
   note.textContent = "";
   note.hidden = true;
 });

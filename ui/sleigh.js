@@ -72,7 +72,7 @@ function applyPose() {
   ride.style.transform = `scaleX(${pose.facing < 0 ? -1 : 1}) rotate(${-pose.tilt}deg)`;
   ho.style.transform = pose.facing < 0 ? "scaleX(-1)" : "none";
 }
-here.listen("sleigh-pose", ({ payload }) => {
+(window.spOn || ((t, e, h) => t.listen(e, h)))(here, "sleigh-pose", ({ payload }) => {
   pose = payload;
   applyPose();
 });

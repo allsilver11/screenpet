@@ -106,9 +106,9 @@ impl Vehicles {
         }
     }
 
-    /// 다시 읽은 탈것 창에 자리·모습을 다시 보냄 (페이지가 다 뜬 뒤)
-    pub fn resend(&mut self) {
-        for l in &mut self.live {
+    /// 다시 읽은 탈것 창(label)에 자리·모습을 다시 보냄 (페이지가 듣기를 마쳤을 때)
+    pub fn resend(&mut self, label: &str) {
+        for l in self.live.iter_mut().filter(|l| l.label == label) {
             l.last_pos = None;
             l.last_pose = None;
         }

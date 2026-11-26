@@ -117,7 +117,7 @@ def test_help_and_readme_tell_about_many_pets():
 def test_a_pet_tied_to_a_vehicle_sleigh_or_object_is_not_let_go():
     """보내 준 펫이 탈것 좌석·썰매·든 물건을 잡고 있으면 그 창·물건이 주인을 잃음"""
     loop = _text("game_loop.rs")
-    remove = loop[loop.index("Input::RemovePet =>"):loop.index("Input::PickPet(label) =>")]
+    remove = loop[loop.index("Input::RemovePet(label) =>"):loop.index("Input::PickPet(label) =>")]
     for check in ("riding()", "boarding()", "carried_object()", "sleigh.is_riding("):
         assert check in remove, check
 
@@ -125,7 +125,7 @@ def test_a_pet_tied_to_a_vehicle_sleigh_or_object_is_not_let_go():
 def test_control_follows_the_pet_that_inherits_the_lead_window():
     """첫 펫을 보내 주면 둘째가 "pet" 창을 물려받음 — 조종하던 둘째는 계속 조종되고, 조종하던 펫이 없어지면 두뇌도 조작 모드를 끔"""
     loop = _text("game_loop.rs")
-    remove = loop[loop.index("Input::RemovePet =>"):loop.index("Input::PickPet(label) =>")]
+    remove = loop[loop.index("Input::RemovePet(label) =>"):loop.index("Input::PickPet(label) =>")]
     assert "control_label = a[0].label.clone();" in remove
     lost = loop[loop.index("if control_on && control_i.is_none() {"):]
     lost = lost[: lost.index("control_on = false;")]
@@ -172,7 +172,7 @@ def test_sending_one_housed_pet_out_keeps_the_house_for_the_others():
     leave = _fn(loop, "fn leave_house_now(")
     assert "hide_quietly" not in leave
     assert "fn hide_house_if_empty(" in loop
-    house = loop[loop.index("Input::ToggleHouse =>"):loop.index("Input::ToggleControl if dodge.is_open()")]
+    house = loop[loop.index("Input::ToggleHouse =>"):loop.index("Input::ToggleControl(_) if dodge.is_open()")]
     assert "hide_house_if_empty(" in house
     send = loop[loop.index("input @ (Input::Net(NetInput::SendTo(_))"):loop.index("Input::Vehicle(input) =>")]
     assert "hide_house_if_empty(" in send
@@ -192,7 +192,11 @@ def test_pet_menus_are_never_changed_under_a_lock_or_from_the_menu_click():
     sync = _fn(tray, "pub fn sync_pets(")
     assert "let old = menu.pet_menus.lock().unwrap().clone();" in sync
     assert "*menu.pet_menus.lock().unwrap() = next;" in sync
-    assert sync.count("pet_menus.lock()") == 2
+    # 잠금은 꺼내고 넣고 (실패하면 비우기만) — 메뉴 바꾸기는 그 밖에서
+    assert sync.count("pet_menus.lock()") == 3
+    for line in sync.splitlines():
+        if "pet_menus.lock()" in line:
+            assert "menu.menu" not in line and "set_" not in line, line
     assert "m.shape == shape" in sync and "next.push(m.clone());" in sync
     handler = tray[tray.index(".on_menu_event(move |app, event|"):]
     handler = handler[: handler.index(".build(app)?;")]
@@ -212,7 +216,7 @@ def test_one_pet_has_no_extra_level_and_no_let_go():
 
 def test_control_moves_to_the_pet_whose_menu_was_used():
     loop = _text("game_loop.rs")
-    arm = loop[loop.index("Input::ToggleControl => {"):loop.index("Input::ToggleBroom =>")]
+    arm = loop[loop.index("Input::ToggleControl(target) => {"):loop.index("Input::ToggleBroom =>")]
     assert "control_on && control_label != target" in arm
     assert "controlled: control == Some(s.label.as_str())," in loop
 
@@ -239,3 +243,42 @@ def test_letters_wait_while_any_pet_refuses_guests():
 def test_records_shared_by_my_other_computer_are_kept_as_old_records():
     loop = _text("game_loop.rs")
     assert "config.keep_old_records()" in loop
+
+
+# ---- 독립 리뷰 3 (2026-11-26 메뉴 개편) ----
+
+
+def test_a_failed_pet_submenu_rebuild_leaves_no_orphans():
+    """펫 하위 메뉴를 다시 만들다 하나가 실패하면 이미 끼운 것·남은 옛것이 메뉴에 남아 다시는 지워지지 않던 것: 모두 빼고 다음에 처음부터"""
+    tray = _text("tray.rs")
+    sync = _fn(tray, "pub fn sync_pets(")
+    fail = sync[sync.index("Err(e) =>"):]
+    fail = fail[: fail.index("return;")]
+    assert "for m in next.iter().chain(&old)" in fail and "menu.menu.remove(&m.sub)" in fail
+    assert "menu.pet_menus.lock().unwrap().clear()" in fail
+
+
+def test_pet_submenus_write_only_what_changed():
+    """펫을 누를 때마다 모든 종류 체크를 펫마다 다시 쓰던 것 (메인 스레드 왕복 150번쯤): 지난번에 맞춘 모습과 다른 것만 씀.
+    메뉴를 누른 뒤(체크가 스스로 뒤집힘)에는 force로 다 씀"""
+    tray = _text("tray.rs")
+    assert "pub applied: Option<Applied>," in tray
+    assert "pub fn sync_pets(app: &AppHandle, force: bool)" in tray
+    apply = _fn(tray, "fn sync_pet_menu(")
+    assert "let was = m.applied.as_ref().filter(|_| !force);" in apply
+    loop = _text("game_loop.rs")
+    assert "crate::tray::sync_pets(&app, menu_dirty);" in loop
+    down = loop[loop.index("Input::PointerDown { label } =>"):loop.index("Input::SetPet {")]
+    assert "menu_dirty = true" not in down and "menu_soft = true" in down
+
+
+def test_menu_actions_name_the_pet_and_do_nothing_if_it_is_gone():
+    """PickPet이 사라진 펫 라벨이면 무시되어 다음 보내 주기·처음부터·종류 바꾸기가 그 전에 고른 펫에게 가던 것: 입력이 펫 라벨을 들고 감"""
+    loop = _text("game_loop.rs")
+    for head in ("Input::RemovePet(label) =>", "Input::ResetGrowth(label) =>", "Input::ToggleLock(label) =>", "Input::ToggleControl(target) =>"):
+        assert head in loop, head
+    assert "Input::SetPet { entry: next, remote, label } =>" in loop
+    assert loop.count("let Some(i) = own_index(&slots, &label) else") >= 3 and "own_index(&slots, &target).is_none()" in loop
+    tray = _text("tray.rs")
+    for sent in ("Input::RemovePet(label.to_string())", "Input::ResetGrowth(label.to_string())", "Input::ToggleLock(label.to_string())", "Input::ToggleControl(label.to_string())"):
+        assert sent in tray, sent

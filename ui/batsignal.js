@@ -114,7 +114,7 @@ fitSignalCanvas();
 
 if (window.__TAURI__) {
   // 이 창으로 온 것만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
-  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("trail-signal", (e) => addSignals(e.payload));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(window.__TAURI__.webviewWindow.getCurrentWebviewWindow(), "trail-signal", (e) => addSignals(e.payload));
 } else if (new URLSearchParams(location.search).get("signal")) {
   // 앱 없이 브라우저에서 보기 (개발용): 화면 아래에서 비추는 신호 둘
   document.documentElement.style.background = "#1d2030";

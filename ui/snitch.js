@@ -148,7 +148,7 @@ fitSnitchCanvas();
 
 if (window.__TAURI__) {
   // 이 창으로 온 것만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
-  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("trail-snitch", (e) => setSnitches(e.payload));
+  (window.spOn || ((t, e, h) => t.listen(e, h)))(window.__TAURI__.webviewWindow.getCurrentWebviewWindow(), "trail-snitch", (e) => setSnitches(e.payload));
 } else if (new URLSearchParams(location.search).get("snitch")) {
   // 앱 없이 브라우저에서 보기 (개발용): 화면을 맴도는 스니치 하나
   document.documentElement.style.background = "#1d2030";

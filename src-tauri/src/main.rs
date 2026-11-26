@@ -16,6 +16,7 @@ mod network;
 mod objects;
 mod opacity;
 mod overlay;
+mod pages;
 mod pet_stats;
 mod pets;
 mod presence;
@@ -371,7 +372,8 @@ fn main() {
             objects::postit_max,
             objects::postit_submit,
             objects::postit_close,
-            note_space
+            note_space,
+            pages::page_ready
         ])
         .build(tauri::generate_context!())
         .expect("error while building ScreenPet")

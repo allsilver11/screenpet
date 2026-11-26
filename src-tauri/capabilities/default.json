@@ -8,9 +8,9 @@
     },
     {
       "identifier": "floating-windows",
-      "description": "떠 있는 창 모두: 👻 전체 투명도 듣기·묻기 (ui/opacity.js). 새 떠 있는 창(탈것 등)도 여기에 라벨을 넣는다",
+      "description": "떠 있는 창 모두: 👻 전체 투명도 듣기·묻기 (ui/opacity.js), 🔄 다시 읽힌 페이지가 듣기를 마쳤다고 알리기 (page_ready). 새 떠 있는 창(탈것 등)도 여기에 라벨을 넣는다",
       "windows": ["pet", "pet-*", "house", "guest-*", "object-*", "vehicle-*", "prop-*", "hand-*", "weather-*", "trail-*", "sleigh"],
-      "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-app-opacity"]
+      "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-app-opacity", "allow-page-ready"]
     },
     {
       "identifier": "pet-windows",

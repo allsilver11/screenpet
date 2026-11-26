@@ -20,7 +20,7 @@ def test_doodles_share_the_trail_window():
     assert '<script src="doodle.js"></script>' in HTML and '<canvas id="doodle">' in HTML
     # 낙서 캔버스가 구름 아래
     assert HTML.index('id="doodle"') < HTML.index('id="trail"')
-    assert 'getCurrentWebviewWindow().listen("trail-doodle"' in JS
+    assert 'getCurrentWebviewWindow(), "trail-doodle"' in JS
     assert '"trail-doodle"' in RS
     # 다른 창 종류를 만들지 않는다
     assert RS.count("screen_cover(") == 1

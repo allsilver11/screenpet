@@ -1686,7 +1686,7 @@ impl Network {
             NetInput::BringPet(id) => {
                 // 그 사람 펫이 이미 내 화면에 와 있으면 묻지 않고 그 손님이 한마디 (메뉴도 "펫 이미 와 있어요")
                 if let Some(s) = slots.iter().find(|s| matches!(&s.role, Role::Guest(g) if g.owner_id == id || config.same_person(&g.owner_id, &id))) {
-                    let _ = app.emit_to(s.label.as_str(), "pet-say-text", away::ALREADY_HERE_LINE);
+                    crate::pages::send(&app, &s.label.as_str(), "pet-say-text", away::ALREADY_HERE_LINE);
                 } else if let (Some(net), true) = (&self.net, self.link_up(&id) && self.guests < MAX_GUESTS) {
                     net.ask(&id, ASK_INVITE);
                     self.invite_asked.insert(id, Instant::now());
@@ -2036,7 +2036,7 @@ impl Network {
                     self.invite_accepted_any = Some(now);
                     // 손 흔들 때 "bye~!" 대신 이 말풍선이 보임
                     slots[i].pet.hush_send();
-                    let _ = app.emit_to(slots[i].label.as_str(), "pet-say-text", visit::invite_bubble(&name));
+                    crate::pages::send(&app, &slots[i].label.as_str(), "pet-say-text", visit::invite_bubble(&name));
                     log!(Info, "visit", "invited", "friend" => short(from));
                 } else if let Some(net) = &self.net {
                     net.ask(from, ASK_BUSY);
@@ -2071,7 +2071,7 @@ impl Network {
         let target = home.map_or(OWN_LABEL, crate::game_loop::speech_target);
         match away::speaker(home.is_some(), target, &guests) {
             Some(target) => {
-                let _ = app.emit_to(target, "pet-say-text", line);
+                crate::pages::send(&app, &target, "pet-say-text", line);
             }
             None => self.held_line = Some((line, Instant::now())),
         }
@@ -2095,7 +2095,7 @@ impl Network {
             return;
         };
         self.come_back(&mut slots[i], None, None);
-        let _ = app.emit_to(slots[i].label.as_str(), "pet-say-text", away::LOST_LINE);
+        crate::pages::send(&app, &slots[i].label.as_str(), "pet-say-text", away::LOST_LINE);
     }
 
     /// net이 짝맞추기 없이 고정한 친구를 설정에 넣음. 소개받은 기기는 소개한 친구와 같은 이름으로,
@@ -2285,7 +2285,12 @@ impl Network {
                         // 돌아온 내 동물 머리 옆에 💌 — 누르면 "💌 <친구>: <답장>" (웹뷰는 textContent로만)
                         let from_name = config.person_name(from).map(str::to_string).unwrap_or_else(|| DEFAULT_NAME.to_string());
                         log!(Info, "visit", "came_home", "friend" => short(from), "with_reply" => 1);
-                        let _ = app.emit_to(label.as_str(), "pet-mail", PetMail { from: from_name, note });
+                        let mail = PetMail { from: from_name, note };
+                        // 다시 읽은 페이지도 봉투를 다시 띄우게 남겨 둠 (읽으면 지움 — game_loop NoteSpace)
+                        if let Some(info) = app.state::<AppState>().slots.lock().unwrap().get_mut(&label) {
+                            info.mail = Some(mail.clone());
+                        }
+                        crate::pages::send(app, &label, "pet-mail", mail);
                     }
                 } else {
                     self.carry_out.remove(&visit_id);
@@ -2837,7 +2842,7 @@ impl Network {
         if let Some(home) = own_slots.iter().find(|s| !self.own_busy(s)) {
             if let Some((line, at)) = self.held_line.take() {
                 if now.saturating_duration_since(at).as_secs_f64() < away::HELD_LINE_SECS {
-                    let _ = app.emit_to(crate::game_loop::speech_target(home), "pet-say-text", line);
+                    crate::pages::send(&app, &crate::game_loop::speech_target(home), "pet-say-text", line);
                 }
             }
         }

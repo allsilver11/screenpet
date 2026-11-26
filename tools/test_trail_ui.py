@@ -33,10 +33,10 @@ def test_the_overlay_is_a_shared_click_through_screen_cover():
 def test_the_overlay_may_listen_and_nothing_else():
     caps = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))["capabilities"]
     holders = [c for c in caps if "trail-*" in c["windows"]]
-    # 듣기와 👻 전체 투명도 묻기 (opacity.js)만
+    # 듣기와 👻 전체 투명도 묻기 (opacity.js), 🔄 다시 읽힌 뒤 듣기를 마쳤다고 알리기 (ready.js)만
     assert [c["identifier"] for c in holders] == ["events", "floating-windows"]
-    assert holders[1]["permissions"] == ["core:event:allow-listen", "core:event:allow-unlisten", "allow-app-opacity"]
-    assert 'getCurrentWebviewWindow().listen("trail-puffs"' in JS
+    assert holders[1]["permissions"] == ["core:event:allow-listen", "core:event:allow-unlisten", "allow-app-opacity", "allow-page-ready"]
+    assert 'getCurrentWebviewWindow(), "trail-puffs"' in JS
     assert '"trail-puffs"' in RS
 
 

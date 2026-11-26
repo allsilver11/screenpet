@@ -106,7 +106,7 @@ impl Presence {
         }
         let out = self.rhythm.tick_all(&input, &mut list, marks);
         if out.house_wave {
-            let _ = app.emit_to(house::LABEL, "house-wave", ());
+            crate::pages::send(&app, &house::LABEL, "house-wave", ());
         }
         let overlay = self.rhythm.overlay(&input);
         if self.last != Some(overlay) || now - self.last_sent >= RESEND_EVERY {

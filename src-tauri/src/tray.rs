@@ -462,6 +462,8 @@ pub struct PetMenu {
     pub sends: Vec<(MenuItem<Wry>, String)>,
     /// 보내 주기 ▸ 와 그 안의 "정말 <이름> 보내 줄까요?" (펫이 둘 이상일 때만)
     pub let_go: Option<(Submenu<Wry>, MenuItem<Wry>)>,
+    /// 지난번 맞춘 것 (None = 새로 만들어 아직 안 맞춤)
+    pub applied: Option<Applied>,
 }
 
 /// 메뉴에 보일 펫 이름: 한 마리면 동물 이름, 여럿이면 "첫째 고양이"처럼 차례를 붙임
@@ -560,48 +562,80 @@ fn build_pet_menu(app: &AppHandle, pets: &[PetEntry], shape: PetShape, tint: Bod
     } else {
         None
     };
-    Ok(PetMenu { shape, sub, growth, kind, species, tints, lock, send, sends, let_go })
+    Ok(PetMenu { shape, sub, growth, kind, species, tints, lock, send, sends, let_go, applied: None })
 }
 
-/// 펫 하위 메뉴의 글자·체크·흐림을 지금 펫에 맞춤 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춤)
-fn sync_pet_menu(m: &PetMenu, view: &OwnView, pets: &[PetEntry], friends: Option<&FriendsMenu>, tint: BodyTint) {
-    let _ = m.sub.set_text(pet_title(&view.name));
-    let _ = m.growth.set_text(growth_label(view.stage, view.locked));
-    let species_name = pets.iter().find(|p| p.id == view.species).map(|p| p.manifest.name.as_str());
-    let _ = m.kind.set_text(kind_label(species_name));
-    for (item, id) in &m.species {
-        let _ = item.set_checked(*id == view.species);
-        // 친구 화면에 가 있거나 가는 중엔 바꾸지 않음
-        let _ = item.set_enabled(!view.busy);
-    }
-    for (item, t) in &m.tints {
-        let _ = item.set_checked(*t == tint);
-    }
-    let _ = m.lock.set_checked(view.locked);
+/// 펫 하위 메뉴에 지난번 맞춘 것 (같은 것은 다시 쓰지 않음 — 메뉴 바꾸기는 하나하나 메인 스레드 왕복)
+#[derive(Clone, PartialEq)]
+pub struct Applied {
+    /// 맞춘 펫 모습
+    view: OwnView,
+    /// 친구마다 놀러 보내기를 누를 수 있었음 (sends 차례)
+    sends: Vec<bool>,
+    /// 맞춘 흐물이 색
+    tint: BodyTint,
+}
+
+/// 펫 하위 메뉴의 글자·체크·흐림을 지금 펫에 맞춤: 지난번(applied)과 다른 것만 씀.
+/// force = 메뉴를 막 눌렀음 (체크 항목은 누를 때 스스로 뒤집히므로 다 다시 씀)
+fn sync_pet_menu(m: &mut PetMenu, view: &OwnView, pets: &[PetEntry], friends: Option<&FriendsMenu>, tint: BodyTint, force: bool) {
     // 놀러 보내기: 이 친구에게 지금 이 펫을 보낼 수 있을 때만 (옛 판 친구에겐 한 번에 한 마리만)
     let pet_no = friends.and_then(|f| f.pets.iter().position(|(uid, _)| *uid == view.uid));
-    let mut any = false;
-    for (item, target) in &m.sends {
-        let can = friends
-            .and_then(|f| f.friends.iter().find(|x| x.target == *target))
-            .is_some_and(|x| match pet_no {
+    let sends: Vec<bool> = m
+        .sends
+        .iter()
+        .map(|(_, target)| {
+            friends.and_then(|f| f.friends.iter().find(|x| x.target == *target)).is_some_and(|x| match pet_no {
                 Some(i) => x.senders.get(i).copied().unwrap_or(false),
                 None => x.can_send,
-            });
-        any |= can;
-        let _ = item.set_enabled(can);
+            })
+        })
+        .collect();
+    let was = m.applied.as_ref().filter(|_| !force);
+    let changed = |f: &dyn Fn(&Applied) -> bool| was.is_none_or(|w| f(w));
+    if changed(&|w| w.view.name != view.name) {
+        let _ = m.sub.set_text(pet_title(&view.name));
+        if let Some((_, item)) = &m.let_go {
+            let _ = item.set_text(let_go_label(&view.name));
+        }
     }
-    let _ = m.send.set_enabled(any);
-    if let Some((menu, item)) = &m.let_go {
-        let _ = menu.set_enabled(!view.busy);
-        let _ = item.set_text(let_go_label(&view.name));
+    if changed(&|w| w.view.stage != view.stage || w.view.locked != view.locked) {
+        let _ = m.growth.set_text(growth_label(view.stage, view.locked));
     }
+    if changed(&|w| w.view.species != view.species || w.view.busy != view.busy) {
+        let species_name = pets.iter().find(|p| p.id == view.species).map(|p| p.manifest.name.as_str());
+        let _ = m.kind.set_text(kind_label(species_name));
+        for (item, id) in &m.species {
+            let _ = item.set_checked(*id == view.species);
+            // 친구 화면에 가 있거나 가는 중엔 바꾸지 않음
+            let _ = item.set_enabled(!view.busy);
+        }
+        if let Some((menu, _)) = &m.let_go {
+            let _ = menu.set_enabled(!view.busy);
+        }
+    }
+    if changed(&|w| w.tint != tint) {
+        for (item, t) in &m.tints {
+            let _ = item.set_checked(*t == tint);
+        }
+    }
+    if changed(&|w| w.view.locked != view.locked) {
+        let _ = m.lock.set_checked(view.locked);
+    }
+    if changed(&|w| w.sends != sends) {
+        for ((item, _), can) in m.sends.iter().zip(&sends) {
+            let _ = item.set_enabled(*can);
+        }
+        let _ = m.send.set_enabled(sends.iter().any(|c| *c));
+    }
+    m.applied = Some(Applied { view: view.clone(), sends, tint });
 }
 
 /// 🐾🐾🐾 펫마다의 하위 메뉴를 지금 펫들에 맞춤 (게임 루프 스레드에서만 — 펫 모습·친구 목록이 바뀔 때).
 /// 모양(PetShape)이 바뀐 하위 메뉴만 새로 만들어 제자리에 끼우고, 나머지는 글자·체크·흐림만 바꿈 (열린 메뉴가 닫히지 않게).
 /// 잠금은 손잡이를 꺼내고 넣을 때만 잡음 — 메뉴 바꾸기는 메인 스레드를 기다리므로 잠금 밖에서 함. 맨 위 좋아하는 음식(고른 펫)·하우스·펫 추가도 맞춤
-pub fn sync_pets(app: &AppHandle) {
+/// force = 메뉴를 막 눌렀음 (체크가 스스로 뒤집혔을 수 있어 글자·체크를 다 다시 씀 — 아니면 바뀐 것만)
+pub fn sync_pets(app: &AppHandle, force: bool) {
     let state = app.state::<AppState>();
     let views = state.own.lock().unwrap().clone();
     if views.is_empty() {
@@ -631,14 +665,18 @@ pub fn sync_pets(app: &AppHandle) {
         match built {
             Ok(m) => next.push(m),
             Err(e) => {
-                // 다음에 다시 (펫 수가 달라 모두 새로 만듦)
+                // 이미 끼운 것·남은 옛것을 모두 빼고 다음에 처음부터 (펫 수가 달라 모두 새로 만듦) — 메뉴에 주인 없는 하위 메뉴가 남지 않게
                 eprintln!("failed to build a pet menu: {e}");
-                break;
+                for m in next.iter().chain(&old) {
+                    let _ = menu.menu.remove(&m.sub);
+                }
+                menu.pet_menus.lock().unwrap().clear();
+                return;
             }
         }
     }
-    for (m, view) in next.iter().zip(&views) {
-        sync_pet_menu(m, view, &state.pets, friends.as_ref(), tint);
+    for (m, view) in next.iter_mut().zip(&views) {
+        sync_pet_menu(m, view, &state.pets, friends.as_ref(), tint, force);
     }
     *menu.pet_menus.lock().unwrap() = next;
     sync_control(app, menu, &views);
@@ -739,7 +777,7 @@ pub fn fill_friends(app: &AppHandle, model: &FriendsMenu) {
     }
     // 🐾🐾🐾 펫 하위 메뉴의 놀러 보내기 ▸ 도 (연결된 친구가 바뀌었으면 그 하위 메뉴만 새로 만듦)
     *app.state::<AppState>().menu.friends_model.lock().unwrap() = Some(model.clone());
-    sync_pets(app);
+    sync_pets(app, false);
 }
 
 /// 🍎 "⌨️ 타자 응원 — Mac 권한 켜기…"는 타자 응원이 켜져 있고 입력 모니터링 권한이 없을 때만 ⚙️ 설정에 있음
@@ -1008,7 +1046,7 @@ fn send(app: &AppHandle, input: Input) {
     app.state::<AppState>().send(input);
 }
 
-/// 펫 하위 메뉴에서 누른 항목: 그 펫을 고른 뒤 할 일을 보냄 (게임 루프는 입력을 차례로 처리하므로 그 펫에게 감)
+/// 펫 하위 메뉴에서 누른 항목: 그 펫을 고른 펫으로 하고 (좋아하는 음식 글자 등) 할 일을 보냄 — 할 일도 펫 라벨을 들고 가서, 그새 없어진 펫이면 아무 일 없음
 fn send_to_pet(app: &AppHandle, label: &str, input: Input) {
     send(app, Input::PickPet(label.to_string()));
     send(app, input);
@@ -1204,16 +1242,16 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], favorite: &FavoriteFood, housed
                 } else if let Some((label, id)) = other.strip_prefix(KIND_PREFIX).and_then(|r| r.split_once('|')) {
                     // 🐾🐾🐾 그 펫의 종류를 바꿈 (체크는 게임 루프가 다시 맞춤 — 누른 항목은 스스로 뒤집힘)
                     if let Some(entry) = app.state::<AppState>().pets.iter().find(|p| p.id == id).cloned() {
-                        send_to_pet(app, label, Input::SetPet { entry, remote: false });
+                        send_to_pet(app, label, Input::SetPet { entry, remote: false, label: Some(label.to_string()) });
                     }
                 } else if let Some(label) = other.strip_prefix(CONTROL_PREFIX) {
-                    send_to_pet(app, label, Input::ToggleControl);
+                    send_to_pet(app, label, Input::ToggleControl(label.to_string()));
                 } else if let Some(label) = other.strip_prefix(LOCK_PREFIX) {
-                    send_to_pet(app, label, Input::ToggleLock);
+                    send_to_pet(app, label, Input::ToggleLock(label.to_string()));
                 } else if let Some(label) = other.strip_prefix(RESET_PREFIX) {
-                    send_to_pet(app, label, Input::ResetGrowth);
+                    send_to_pet(app, label, Input::ResetGrowth(label.to_string()));
                 } else if let Some(label) = other.strip_prefix(LET_GO_PREFIX) {
-                    send_to_pet(app, label, Input::RemovePet);
+                    send_to_pet(app, label, Input::RemovePet(label.to_string()));
                 } else if let Some(id) = other.strip_prefix(ADD_PET_PREFIX) {
                     if let Some(entry) = app.state::<AppState>().pets.iter().find(|p| p.id == id).cloned() {
                         send(app, Input::AddPet(entry));

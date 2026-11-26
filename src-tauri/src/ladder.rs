@@ -603,7 +603,7 @@ impl Ladders {
             Mood::Neutral => return,
         };
         if own.pet.react_to_result(good) {
-            let _ = app.emit_to(OWN_LABEL, "pet-say-text", format!("🎲 {}", slot.text));
+            crate::pages::send(&app, &OWN_LABEL, "pet-say-text", format!("🎲 {}", slot.text));
         }
     }
 

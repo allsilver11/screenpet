@@ -71,28 +71,31 @@ pub enum Input {
     /// 창(label)의 동물을 눌렀음
     PointerDown { label: String },
     /// 동물 교체 — 돌보기 상태는 게임 루프가 가진 설정에서 찾음.
-    /// remote = 📱 노는 내 다른 컴퓨터가 바꿨음 (다시 알리지 않고, 트레이 체크를 맞춤)
-    SetPet { entry: PetEntry, remote: bool },
+    /// remote = 📱 노는 내 다른 컴퓨터가 바꿨음 (다시 알리지 않고, 트레이 체크를 맞춤 — 첫 펫).
+    /// label = 바꿀 내 펫 창 (펫 하위 메뉴 — 그새 없어졌으면 아무 일 없음), None이면 첫 펫
+    SetPet { entry: PetEntry, remote: bool, label: Option<String> },
     /// 🎨 흐물이 몸 색 (설정에 남음) — 바로 칠해짐
     SetTint(BodyTint),
     /// 밥 주기. label = 음식을 고른 펫 창 (하우스 창이면 하우스 안의 펫), None = 트레이 (그릇이면 배고픈 펫 모두, 손이면 닿는 펫)
     Feed { food: Food, label: Option<String> },
     /// 🐾🐾🐾 펫 추가 (그 동물로 — 꽉 찼으면 아무 일 없음)
     AddPet(PetEntry),
-    /// 🐾🐾🐾 고른 펫을 보내 줌 (마지막 한 마리·놀러 가 있는 펫은 못 뺌)
-    RemovePet,
+    /// 🐾🐾🐾 그 펫(창 라벨)을 보내 줌 (마지막 한 마리·놀러 가 있는 펫·그새 없어진 펫은 아무 일 없음)
+    RemovePet(String),
     /// 🐾🐾🐾 메뉴가 다룰 펫을 고름 (펫 창 라벨)
     PickPet(String),
     /// 🐾🐾🐾 "놀러 보내기 ▸ 친구 ▸ 펫": 그 펫(uid)을 그 친구에게
     SendPet { uid: String, friend: String },
     /// 밥 주기 방법 (직접 주기 / 자동 주기)
     SetFeedMode(FeedMode),
-    ToggleLock,
-    ResetGrowth,
+    /// 그 펫(창 라벨)의 성장 멈추기 켜기·끄기
+    ToggleLock(String),
+    /// 그 펫(창 라벨)을 처음부터 다시 키움
+    ResetGrowth(String),
     /// 하우스로 들어가기 / 나오기
     ToggleHouse,
-    /// 🎮 조작 모드 켜기 / 끄기 (트레이·우클릭 체크 항목)
-    ToggleControl,
+    /// 🎮 조작 모드: 그 펫(창 라벨)을 조종 / 끔 (다른 펫을 조종 중이면 이 펫으로 옮김)
+    ToggleControl(String),
     /// 🐾 커서 장난 켜기 / 끄기 (설정에 남음)
     ToggleCursorPlay,
     /// ⌨️ 타자 응원 켜기·끄기
@@ -168,6 +171,8 @@ pub enum Input {
     Restart,
     /// 🔄 새로고침: 떠 있는 창의 웹뷰를 모두 다시 읽고 다시 보임 (refresh_windows — 돌던 것은 그대로, 연결도 그대로)
     Refresh,
+    /// 떠 있는 창(label)의 페이지가 듣기를 마쳤음 (pages.rs page_ready): 그 창의 지금 모습을 다시 보냄
+    PageReady(String),
     /// 앱이 끝나는 중 (창이 닫힘·로그오프 등): 저장만 하고 알린 뒤 루프를 끝냄
     SaveAndStop(Sender<()>),
 }
@@ -238,6 +243,11 @@ fn set_care(config: &mut Config, s: &Slot, care: Care) {
     if let Some(p) = s.uid().and_then(|u| config.own_pet_mut(u)) {
         p.care = care;
     }
+}
+
+/// 🐾🐾🐾 그 라벨의 내 펫 슬롯 번호 (그새 보내 줬거나 손님 창이면 None)
+fn own_index(slots: &[Slot], label: &str) -> Option<usize> {
+    slots.iter().take_while(|s| s.is_own()).position(|s| s.label == label)
 }
 
 /// 🐾🐾🐾 메뉴가 다루는 펫의 슬롯 번호 (AppState.picked — 없으면 첫 펫)
@@ -365,17 +375,26 @@ fn leave_house_now(app: &AppHandle, own: &mut Slot) {
     }
 }
 
-/// 새로 고친 웹뷰가 다 뜬 뒤 모습을 한 번 더 보내는 때 (페이지가 뜨기 전에 보낸 것은 놓침)
-const RESEND_AFTER: Duration = Duration::from_millis(1500);
-
-/// 🔄 떠 있는 창을 모두 새로 고침 (트레이 🔄 새로고침, 💤 긴 잠금·절전·모니터 바뀜 뒤 — 코어 wake.rs):
+/// 🔄 떠 있는 창을 모두 새로 고침 (트레이 🔄 새로고침, 💤 잠금 풀기·절전에서 깸·모니터 바뀜 뒤 — 코어 wake.rs):
 /// 펫·손님 창은 웹뷰를 다시 읽고 제자리에 다시 보임, 하우스는 다시 읽고 하우스 안 펫이 있으면 구석에 다시 보임,
-/// 밥그릇·손 음식·물건·탈것·날씨 창도 다시 읽음. RESEND_AFTER 뒤에 resend_all이 모습을 한 번 더 보냄
-fn refresh_windows(app: &AppHandle, slots: &mut [Slot], house_window: Option<&tauri::WebviewWindow>, objects: &mut Objects, vehicles: &mut crate::vehicles::Vehicles, weather: &mut WeatherFx) {
+/// 밥그릇·손 음식·눈사람(prop-·hand-)·물건·탈것·날씨·구름·썰매 창도 다시 읽음.
+/// 페이지가 듣기를 마치면 (pages.rs page_ready → Input::PageReady) 그 창의 모습을 다시 보내고 모아 둔 말풍선 등을 보냄
+#[allow(clippy::too_many_arguments)]
+fn refresh_windows(
+    app: &AppHandle,
+    slots: &mut [Slot],
+    house_window: Option<&tauri::WebviewWindow>,
+    objects: &mut Objects,
+    vehicles: &mut crate::vehicles::Vehicles,
+    weather: &mut WeatherFx,
+    trail: &mut crate::trail::TrailFx,
+    sleigh: &mut crate::sleigh::SleighFx,
+) {
     for s in slots.iter_mut() {
         s.reload_view();
     }
     if let Some(hw) = house_window {
+        crate::pages::begin(house::LABEL);
         let _ = hw.reload();
         if !crate::windows_hidden(app) && slots.iter().take_while(|s| s.is_own()).any(|s| s.pet.is_housed()) {
             house::show_in_corner(app);
@@ -389,16 +408,44 @@ fn refresh_windows(app: &AppHandle, slots: &mut [Slot], house_window: Option<&ta
     objects.reload_windows();
     vehicles.reload_windows();
     weather.reload_windows();
+    trail.reload_windows();
+    sleigh.reload_windows();
 }
 
-/// 새로 고친 창들에 자리·모습·장면을 한 번 더 보냄 (refresh_windows 뒤 RESEND_AFTER)
-fn resend_all(app: &AppHandle, slots: &mut [Slot], objects: &mut Objects, vehicles: &mut crate::vehicles::Vehicles, weather: &mut WeatherFx) {
-    for s in slots.iter_mut() {
-        s.forget_sent();
+/// 듣기를 마친 페이지(label)에 그 창의 지금 자리·모습·장면을 다시 보냄 (처음 뜰 때와 다시 읽힐 때마다 — 페이지가 뜨기 전에 보낸 것은 놓침)
+#[allow(clippy::too_many_arguments)]
+fn resend_to(
+    app: &AppHandle,
+    label: &str,
+    slots: &mut [Slot],
+    objects: &mut Objects,
+    vehicles: &mut crate::vehicles::Vehicles,
+    weather: &mut WeatherFx,
+    trail: &mut crate::trail::TrailFx,
+    sleigh: &mut crate::sleigh::SleighFx,
+) {
+    if let Some(i) = slots::find(slots, label) {
+        slots[i].forget_sent();
     }
-    objects.resend(app);
-    vehicles.resend();
-    weather.resend();
+    objects.resend(app, label);
+    vehicles.resend(label);
+    weather.resend(label);
+    trail.resend(label, Instant::now());
+    if label == crate::sleigh::LABEL {
+        sleigh.resend();
+    }
+}
+
+/// 💤 지금 모니터들 (테두리 전체·배율 — 작업 영역이 아님, 코어 wake.rs). 못 읽으면 빈 목록
+fn monitors_now(app: &AppHandle) -> Vec<screenpet_core::wake::Monitor> {
+    let list = app.available_monitors().unwrap_or_default();
+    list.iter()
+        .map(|m| {
+            let (p, sz) = (m.position(), m.size());
+            let frame = Rect { left: p.x as f64, top: p.y as f64, right: p.x as f64 + sz.width as f64, bottom: p.y as f64 + sz.height as f64 };
+            screenpet_core::wake::Monitor { frame, scale: m.scale_factor() }
+        })
+        .collect()
 }
 
 /// 🐾🐾🐾 하우스 안이거나 하우스로 가는 내 펫이 하나도 없으면 집 창을 숨김 (한 마리만 꺼내 보내도 남은 펫들의 집은 그대로)
@@ -511,6 +558,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     }
     // 🐾🐾🐾 메뉴(고른 펫·하우스 글자)는 틱 끝에서 펫들의 모습이 바뀌었거나 이것이 켜져 있으면 다시 맞춤
     let mut menu_dirty = true;
+    // 메뉴의 바뀐 글자만 맞추면 됨 (펫을 눌러 고른 펫이 바뀜 — menu_dirty는 메뉴를 막 눌러 체크를 다 다시 써야 할 때)
+    let mut menu_soft = false;
     let mut last_views: Vec<crate::tray::OwnView> = Vec::new();
     let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
     let _ = app.state::<AppState>().menu.typing_cheer.set_checked(!config.typing_cheer_off);
@@ -582,9 +631,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     crate::tray::sync_typing_permission(&app.state::<AppState>().menu, !config.typing_cheer_off && typing_permission == Some(false));
     // 자리 비움·돌아옴, 하루 일과, 🍅 뽀모도로 (1초에 한 번)
     let mut presence = Presence::new(&app, config.focus_length);
-    // 💤 깨어남 감시 (코어 wake.rs)와 새로 고친 창에 모습을 다시 보낼 때
+    // 💤 깨어남 감시 (코어 wake.rs)
     let mut wake = screenpet_core::wake::WakeWatch::default();
-    let mut resend_at: Option<Instant> = None;
     // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없음)
     let mut objects = Objects::new();
     // 🚗 탈것 (vehicles.rs — 코어 vehicle.rs Garage)
@@ -639,13 +687,23 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                         // 🐾🐾🐾 누른 내 펫이 메뉴의 고른 펫이 됨
                         if slots[i].is_own() {
                             *app.state::<AppState>().picked.lock().unwrap() = label;
-                            menu_dirty = true;
+                            // 좋아하는 음식 글자만 바뀜 — 바뀐 것만 맞춤 (force 아님)
+                            menu_soft = true;
                         }
                     }
                 }
-                Input::SetPet { entry: next, remote } => {
-                    // 🐾🐾🐾 고른 펫의 종류를 바꿈 (📱 내 다른 컴퓨터가 바꿨으면 첫 펫 — 그쪽도 첫 펫만 나눔)
-                    let i = if remote { OWN } else { picked(&app, &slots) };
+                Input::SetPet { entry: next, remote, label } => {
+                    // 🐾🐾🐾 그 펫의 종류를 바꿈 (📱 내 다른 컴퓨터가 바꿨으면 첫 펫 — 그쪽도 첫 펫만 나눔). 그새 없어진 펫이면 아무 일 없음
+                    let i = match label.filter(|_| !remote) {
+                        Some(label) => {
+                            let Some(i) = own_index(&slots, &label) else {
+                                menu_dirty = true;
+                                continue;
+                            };
+                            i
+                        }
+                        None => OWN,
+                    };
                     let own = &mut slots[i];
                     // 친구 화면에 가 있거나 가는 중엔 바꾸지 않음 (트레이 체크만 되돌림)
                     if network.own_busy(own) {
@@ -728,10 +786,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     }
                     menu_dirty = true;
                 }
-                Input::RemovePet => {
-                    // 🐾🐾🐾 고른 펫을 보내 줌: 마지막 한 마리·친구 화면에 가 있거나 가는 펫은 못 뺌 (메뉴도 흐림)
+                Input::RemovePet(label) => {
+                    // 🐾🐾🐾 그 펫을 보내 줌: 마지막 한 마리·친구 화면에 가 있거나 가는 펫·그새 없어진 펫은 못 뺌 (메뉴도 흐림)
                     let n = own_count(&slots);
-                    let i = picked(&app, &slots);
+                    let Some(i) = own_index(&slots, &label) else {
+                        menu_dirty = true;
+                        continue;
+                    };
                     // 들렸거나 탈것·썰매에 탔거나 물건을 든 펫도 (창·물건이 주인을 잃음). 첫 펫이면 창을 물려받을 다음 펫도 썰매에 타고 있으면 안 됨
                     let tied = |s: &Slot| s.pet.is_held() || s.pet.riding().is_some() || s.pet.boarding().is_some() || s.pet.carried_object().is_some() || sleigh.is_riding(&s.label);
                     if n <= 1 || network.own_busy(&slots[i]) || tied(&slots[i]) || (i == OWN && sleigh.is_riding(&slots[1].label)) {
@@ -775,9 +836,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     save_config(&app, &mut config);
                 }
                 Input::PickPet(label) => {
-                    if slots::find(&slots, &label).is_some_and(|i| slots[i].is_own()) {
+                    if own_index(&slots, &label).is_some() {
                         *app.state::<AppState>().picked.lock().unwrap() = label;
-                        menu_dirty = true;
+                        menu_soft = true;
                     }
                 }
                 Input::SetTint(tint) => {
@@ -846,9 +907,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     crate::tray::sync_feed_mode(&app.state::<AppState>().menu, mode);
                     save_config(&app, &mut config);
                 }
-                Input::ToggleLock => {
-                    // 🐾🐾🐾 고른 펫
-                    let i = picked(&app, &slots);
+                Input::ToggleLock(label) => {
+                    // 🐾🐾🐾 그 펫 (그새 없어졌으면 메뉴만 다시 맞춤)
+                    let Some(i) = own_index(&slots, &label) else {
+                        menu_dirty = true;
+                        continue;
+                    };
                     let mut care = care_of(&config, &slots[i]);
                     care.locked = !care.locked;
                     // 멈추면 바로 조르기를 그침 (풀면 배고픈 만큼 다시 조름)
@@ -860,9 +924,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     save_config(&app, &mut config);
                     share_care(&network, &config, true);
                 }
-                Input::ResetGrowth => {
-                    // 🐾🐾🐾 고른 펫
-                    let i = picked(&app, &slots);
+                Input::ResetGrowth(label) => {
+                    // 🐾🐾🐾 그 펫 (그새 없어졌으면 아무 일 없음)
+                    let Some(i) = own_index(&slots, &label) else {
+                        menu_dirty = true;
+                        continue;
+                    };
                     let mut care = care_of(&config, &slots[i]);
                     care.reset();
                     let own = &mut slots[i];
@@ -908,12 +975,15 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     save_config(&app, &mut config);
                 }
                 // 똥피하기 창이 열려 있으면 조작 모드는 켜지 않음 (게임이 키를 줌)
-                Input::ToggleControl if dodge.is_open() => {
+                Input::ToggleControl(_) if dodge.is_open() => {
                     menu_dirty = true;
                 }
-                Input::ToggleControl => {
-                    // 🐾🐾🐾 고른 펫 (펫 하위 메뉴에서 누른 펫)을 조종함: 그 펫을 조종 중이면 끄고, 다른 펫을 조종 중이면 이 펫으로 옮김
-                    let target = slots[picked(&app, &slots)].label.clone();
+                Input::ToggleControl(target) => {
+                    // 🐾🐾🐾 그 펫을 조종함: 그 펫을 조종 중이면 끄고, 다른 펫을 조종 중이면 이 펫으로 옮김 (그새 없어진 펫이면 아무 일 없음)
+                    if own_index(&slots, &target).is_none() {
+                        menu_dirty = true;
+                        continue;
+                    }
                     if control_on && control_label != target {
                         if let Some(i) = slots::find(&slots, &control_label) {
                             slots[i].pet.set_control(false);
@@ -1036,9 +1106,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     let n = own_count(&slots);
                     if slots[..n].iter().any(|s| s.pet.is_housed()) {
                         if let Some(s) = slots[..n].iter().find(|s| s.pet.is_housed() && care_of(&config, s).is_hungry()) {
-                            let _ = app.emit_to(house::LABEL, "food-picker", favorite_of(&s.entry));
+                            crate::pages::send(&app, &house::LABEL, "food-picker", favorite_of(&s.entry));
                         } else {
-                            let _ = app.emit_to(house::LABEL, "house-wave", ());
+                            crate::pages::send(&app, &house::LABEL, "house-wave", ());
                         }
                     }
                 }
@@ -1076,6 +1146,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     // 손님이 들고 온 편지, 또는 돌아온 내 동물이 들고 온 답장
                     if let Some(i) = slots::find(&slots, &label) {
                         slots[i].set_note_open(open);
+                        // 💌 내 펫이 들고 온 답장은 읽으면 끝 (다시 읽은 페이지에 또 주지 않음 — slot_info의 mail)
+                        if open && slots[i].is_own() {
+                            if let Some(info) = app.state::<AppState>().slots.lock().unwrap().get_mut(&label) {
+                                info.mail = None;
+                            }
+                        }
                     }
                 }
                 // 답장 창 "보내기": 그 손님이 답장을 들고 손 흔들고 집으로 (편지 창이 답장 창으로 열려 있을 때)
@@ -1219,7 +1295,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     }
                     // 펫 바꾸기는 평소 길로 (친구에게 가 있으면 다음 소식 때 다시)
                     if let Some(entry) = got.switch_to.and_then(|id| state.pets.iter().find(|e| e.id == id).cloned()) {
-                        state.send(Input::SetPet { entry, remote: true });
+                        state.send(Input::SetPet { entry, remote: true, label: None });
                     }
                 }
                 Input::Net(input) => {
@@ -1315,8 +1391,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     return;
                 }
                 Input::Refresh => {
-                    refresh_windows(&app, &mut slots, house_window.as_ref(), &mut objects, &mut vehicles, &mut weather);
-                    resend_at = Some(Instant::now() + RESEND_AFTER);
+                    refresh_windows(&app, &mut slots, house_window.as_ref(), &mut objects, &mut vehicles, &mut weather, &mut trail, &mut sleigh);
+                }
+                Input::PageReady(label) => {
+                    resend_to(&app, &label, &mut slots, &mut objects, &mut vehicles, &mut weather, &mut trail, &mut sleigh);
                 }
                 Input::SaveAndStop(done) => {
                     save_config(&app, &mut config);
@@ -1515,7 +1593,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                 // 입력 모니터링 권한이 없으면 다른 앱이 앞에 있을 때 키가 늘 안 눌림으로 읽힘
                 key_hint_shown = true;
                 if own.on_screen() {
-                    let _ = app.emit_to(speech_target(own), "pet-say-text", crate::tray::KEY_PERMISSION_HINT);
+                    crate::pages::send(&app, &speech_target(own), "pet-say-text", crate::tray::KEY_PERMISSION_HINT);
                 }
             }
         }
@@ -1555,7 +1633,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         match typing_ask.tick(now, !config.typing_cheer_off, typing_permission) {
             Some(AskStep::Explain) => {
                 if slots[OWN].on_screen() {
-                    let _ = app.emit_to(speech_target(&slots[OWN]), "pet-say-text", crate::tray::TYPING_PERMISSION_EXPLAIN);
+                    crate::pages::send(&app, &speech_target(&slots[OWN]), "pet-say-text", crate::tray::TYPING_PERMISSION_EXPLAIN);
                 }
             }
             Some(AskStep::Request) => {
@@ -1565,7 +1643,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
             }
             Some(AskStep::RestartHint) => {
                 if slots[OWN].on_screen() {
-                    let _ = app.emit_to(speech_target(&slots[OWN]), "pet-say-text", crate::tray::TYPING_RESTART_HINT);
+                    crate::pages::send(&app, &speech_target(&slots[OWN]), "pet-say-text", crate::tray::TYPING_RESTART_HINT);
                 }
             }
             None => {}
@@ -1705,12 +1783,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
             }
             if let Some(speech) = s.pet.take_speech() {
                 let target = if s.is_own() { speech_target(s) } else { s.label.as_str() };
-                let _ = app.emit_to(target, "pet-say", speech);
+                crate::pages::send(&app, &target, "pet-say", speech);
             }
             // ⚾ 받은 횟수 ("3!") 같은 글자 그대로의 말
             if let Some(text) = s.pet.take_speech_text() {
                 let target = if s.is_own() { speech_target(s) } else { s.label.as_str() };
-                let _ = app.emit_to(target, "pet-say-text", text);
+                crate::pages::send(&app, &target, "pet-say-text", text);
             }
             // 밥그릇 놓기·거두기 (손님은 먹이를 받지 않음 — 🐾🐾🐾 펫마다 그릇 하나)
             if let Some(ev) = s.pet.take_prop() {
@@ -1884,19 +1962,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         // 📱 대기 중인 이 컴퓨터를 다시 쓰기 시작했으면 이 컴퓨터로 놂 (쓴 지 얼마나 됐는지는 net에도)
         if let Some((secs, idle)) = presence.take_sample() {
             network.tick_presence(secs, idle);
-            // 💤 잤다 깼거나 오래 비웠다 돌아왔거나 (밤새 잠금 뒤 풀기) 모니터가 바뀌었으면 떠 있는 창을 새로 고침 —
-            // WebView2가 그 사이 투명 창 그림을 잃어 펫이 안 보이던 버그 (코어 wake.rs)
+            // 💤 잠금을 풀었거나 (OS 알림) 잤다 깼거나 모니터가 바뀌었으면 떠 있는 창을 새로 고침 —
+            // WebView2가 그 사이 투명 창 그림을 잃어 펫이 안 보이던 버그 (코어 wake.rs — 유휴 시간으로는 하지 않음)
             let wall = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
-            if let Some(reason) = wake.observe(wall, idle, &slots[OWN].world.work_areas) {
+            let events = source.session_events();
+            if let Some(reason) = wake.observe(secs, wall, events, &monitors_now(&app)) {
                 eprintln!("refreshing floating windows: {}", reason.name());
-                refresh_windows(&app, &mut slots, house_window.as_ref(), &mut objects, &mut vehicles, &mut weather);
-                resend_at = Some(now + RESEND_AFTER);
+                refresh_windows(&app, &mut slots, house_window.as_ref(), &mut objects, &mut vehicles, &mut weather, &mut trail, &mut sleigh);
             }
         }
-        if resend_at.is_some_and(|at| now >= at) {
-            resend_at = None;
-            resend_all(&app, &mut slots, &mut objects, &mut vehicles, &mut weather);
-        }
+        crate::pages::tick(&app, now);
         // 손님도 이 화면 주인이 자리를 비운 동안엔 잠만 잠
         for s in &mut slots[n..] {
             s.pet.set_user_away(presence.is_away());
@@ -1914,7 +1989,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
             let care = care_of(&config, &slots[i]);
             let own = &mut slots[i];
             if own.pet.take_food_request() {
-                let _ = app.emit_to(speech_target(own), "food-picker", favorite_of(&own.entry));
+                crate::pages::send(&app, &speech_target(own), "food-picker", favorite_of(&own.entry));
             }
             if own.pet.is_housed() != own.track.was_housed {
                 own.track.was_housed = own.pet.is_housed();
@@ -1993,12 +2068,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         }
         // 🐾🐾🐾 메뉴: 펫들의 모습이 바뀌었으면 (단계·성장 멈춤·하우스·놀러 감·종류·조작) 펫 하위 메뉴들과 하우스 글자를 맞춤
         let views = own_views(&slots, &config, &network, control_on.then_some(control_label.as_str()));
-        if menu_dirty || views != last_views {
-            menu_dirty = false;
+        if menu_dirty || menu_soft || views != last_views {
             *app.state::<AppState>().own.lock().unwrap() = views.clone();
             last_views = views;
             let _ = app.state::<AppState>().menu.house.set_text(crate::tray::house_label(config.housed));
-            crate::tray::sync_pets(&app);
+            crate::tray::sync_pets(&app, menu_dirty);
+            menu_dirty = false;
+            menu_soft = false;
         }
 
         let hidden = crate::windows_hidden(&app);

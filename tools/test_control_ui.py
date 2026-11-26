@@ -10,7 +10,7 @@ HELP = (ROOT / "ui" / "help.html").read_text(encoding="utf-8")
 
 
 def test_no_hint_bubble_when_control_turns_on():
-    toggle = LOOP[LOOP.index("Input::ToggleControl =>"):LOOP.index("Input::ToggleWeather =>")]
+    toggle = LOOP[LOOP.index("Input::ToggleControl(target) =>"):LOOP.index("Input::ToggleWeather =>")]
     assert "pet-say" not in toggle
     assert "CONTROL_HINT" not in TRAY
 

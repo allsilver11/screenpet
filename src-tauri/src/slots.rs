@@ -155,6 +155,8 @@ pub struct SlotInfo {
     pub render: Option<RenderState>,
     /// 🎨 몸 색 id (잉크 선 동물만 칠함 — ui/main.js setupTint)
     pub tint: BodyTint,
+    /// 💌 내 펫이 들고 돌아온 아직 안 읽은 답장 (다시 읽은 페이지도 봉투를 다시 띄움 — 읽으면 NoteSpace가 지움)
+    pub mail: Option<crate::network::PetMail>,
 }
 
 impl SlotInfo {
@@ -164,7 +166,7 @@ impl SlotInfo {
             Role::Own(_) => ("own", None, None, None, false, BodyTint::Default),
             Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone()), g.note.clone(), g.can_grow, g.tint),
         };
-        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, owner_id, note, can_grow, render, tint }
+        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, owner_id, note, can_grow, render, tint, mail: None }
     }
 }
 
@@ -338,7 +340,13 @@ impl Slot {
         self.pet.set_cursor_species(&self.entry.id);
         self.shown = shown;
         let info = self.info();
-        app.state::<AppState>().slots.lock().unwrap().insert(self.label.clone(), info.clone());
+        {
+            // 안 읽은 💌 답장은 그대로 둠
+            let state = app.state::<AppState>();
+            let mut infos = state.slots.lock().unwrap();
+            let mail = infos.get(&self.label).and_then(|i| i.mail.clone());
+            infos.insert(self.label.clone(), SlotInfo { mail, ..info.clone() });
+        }
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
     }
 
@@ -459,6 +467,8 @@ impl Slot {
     /// 🔄 새로고침·💤 깨어남: 웹뷰를 다시 읽고 (그림을 잃은 WebView2를 되살림 — 새 페이지는 slot_info로 지금 모습을 받음),
     /// 창을 숨겼다가 다음 place에서 제자리에 다시 보임 (화면 위에 있어야 할 때만). 펼친 편지는 접음 (새 페이지엔 없음)
     pub fn reload_view(&mut self) {
+        // 페이지가 듣기를 마칠 때까지 말풍선·답장 같은 한 번뿐인 알림을 모아 둠 (pages.rs)
+        crate::pages::begin(&self.label);
         self.set_note_open(false);
         let _ = self.window.reload();
         self.forget_sent();

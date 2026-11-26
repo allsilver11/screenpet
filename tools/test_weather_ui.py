@@ -347,7 +347,7 @@ def test_flurries_are_capped_and_fade_away(run):
 def test_the_broom_is_in_the_menu_and_flurries_reach_the_overlay():
     tray = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
     assert '"🧹 빗자루"' in tray and "Input::ToggleBroom" in tray
-    assert '"weather-flurry"' in RS and 'listen("weather-flurry"' in JS
+    assert '"weather-flurry"' in RS and 'getCurrentWebviewWindow(), "weather-flurry"' in JS
 
 
 def test_the_broom_pushes_every_loose_object_not_just_poop():

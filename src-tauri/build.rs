@@ -101,6 +101,7 @@ fn main() {
         "postit_submit",
         "postit_close",
         "note_space",
+        "page_ready",
     ])))
     .expect("tauri build failed");
 }

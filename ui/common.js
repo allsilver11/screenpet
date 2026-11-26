@@ -73,7 +73,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
   // 전역 event.listen은 다른 창 앞으로 보낸(emit_to) 이벤트까지 받음 — 이 창 앞으로 온 것만 들음
   const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
   // 이 창 앞으로 온 이벤트만 들음
-  const listen = (event, handler) => here.listen(event, handler);
+  const listen = (event, handler) => (window.spOn || ((t, e, h) => t.listen(e, h)))(here, event, handler);
   let bubbleTimer = null;
   let pickerTimer = null;
   // 글 말풍선(pet-say-text: "<이름>: busy~" 같은 알림)이 이때까지 떠 있음 — 그동안 짧은 대사(ouch! 등)는 덮지 않고 버림

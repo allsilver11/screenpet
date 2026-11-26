@@ -4,7 +4,7 @@ const { invoke } = window.__TAURI__.core;
 // 전역 event.listen은 다른 창 앞으로 보낸(emit_to) 이벤트까지 받음 — 이 창 앞으로 온 것만 들음
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 // 이 창 앞으로 온 이벤트만 들음
-const listen = (event, handler) => here.listen(event, handler);
+const listen = (event, handler) => (window.spOn || ((t, e, h) => t.listen(e, h)))(here, event, handler);
 
 const petEl = document.getElementById("pet");
 const heartEl = document.getElementById("heart");
@@ -789,15 +789,18 @@ function applyRole(info) {
 }
 
 // 친구 화면에서 답장을 들고 돌아온 내 동물: 머리 옆에 💌 — 봉투나 몸을 누르면 "💌 <친구>: <답장>"을 10초 (한 번 읽으면 봉투는 사라짐)
-listen("pet-mail", (e) => {
-  const mail = e.payload ?? {};
+// (다시 읽힌 페이지는 slot_info의 mail로 안 읽은 답장을 다시 받음 — 읽으면 앱이 지움)
+function takeMail(mail) {
+  mail = mail ?? {};
   if (isGuest || typeof mail.note !== "string" || !mail.note) return;
+  if (note === mail.note && !noteRead) return;
   closeNote();
   note = mail.note;
   ownerName = typeof mail.from === "string" ? mail.from : "";
   noteRead = false;
   envelopeEl.hidden = false;
-});
+}
+listen("pet-mail", (e) => takeMail(e.payload));
 
 // 동물 교체·성장·리셋: 창 크기는 백엔드가 바꾸고, 여기선 시트와 스프라이트 크기를 맞춤
 const listeningStage = listen("pet-stage", (e) => {
@@ -1084,6 +1087,7 @@ requestAnimationFrame(draw);
   await Promise.all([listeningRender, listeningStage]);
   stage = await invoke("slot_info");
   applyRole(stage);
+  if (stage.mail) takeMail(stage.mail);
   if (!gotRender && stage.render) {
     render = stage.render;
     syncCloud(!!render.cloud);

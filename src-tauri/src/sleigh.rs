@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 use crate::slots::Slot;
 
 /// 썰매 창 라벨
-const LABEL: &str = "sleigh";
+pub const LABEL: &str = "sleigh";
 
 /// 썰매에 탄 동물 하나 (웹뷰가 시트에서 그림)
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +66,20 @@ impl SleighFx {
     /// 빈 상태로 만듦
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 🔄 썰매 창 웹뷰를 다시 읽음 (새로고침·깨어남). 모습은 페이지가 준비되면 resend가 다시 보냄
+    pub fn reload_windows(&mut self) {
+        if let Some(r) = &self.ride {
+            let _ = r.window.reload();
+        }
+    }
+
+    /// 다시 읽은 썰매 창에 모습을 다시 보냄 (페이지가 준비됐을 때)
+    pub fn resend(&mut self) {
+        if let Some(r) = &mut self.ride {
+            r.last_pose = None;
+        }
     }
 
     /// 이 창의 동물이 썰매에 타 있음 (움직이지 않고 창은 치워 둠)

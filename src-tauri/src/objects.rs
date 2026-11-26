@@ -366,12 +366,15 @@ impl Objects {
         }
     }
 
-    /// 다시 읽은 물건 창에 크기·자리·모습을 다시 보냄 (페이지가 다 뜬 뒤 — 게임 루프가 잠시 뒤 부름)
-    pub fn resend(&mut self, app: &AppHandle) {
-        for l in &mut self.live {
+    /// 다시 읽은 물건 창(label)에 크기·자리·모습·포스트잇을 다시 보냄 (페이지가 듣기를 마쳤을 때 — pages.rs page_ready)
+    pub fn resend(&mut self, app: &AppHandle, label: &str) {
+        for l in self.live.iter_mut().filter(|l| l.label == label) {
             if l.window.is_none() {
                 continue;
             }
+            // 붙은 포스트잇 (내가 붙였거나 받고 아직 안 읽음 — 읽는 중인 글자는 이미 지워져 다시 못 보냄)
+            let sticker = matches!(l.object.postit(), Postit::Mine | Postit::Unread);
+            let _ = app.emit_to(l.label.as_str(), "object-sticker", sticker);
             l.last_pos = None;
             // NaN은 어떤 모습과도 같지 않음: 다음 틱에 지금 모습을 꼭 보냄
             l.last_pose = PosePayload { angle: f64::NAN, dx: 0.0 };
