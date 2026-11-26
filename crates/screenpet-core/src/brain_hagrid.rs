@@ -7,6 +7,9 @@
 //!   함께 다니다가 끝나면 내려섬. 들기·내려놓기는 흐물이 들기와 같은 길 (hoist.lifted_now·put_now → sync_lifts)
 //! - 🤗 안기 (Hug): 같은 바닥 HUG_REACH 안의 다른 펫 (내 몸의 HUG_MAX배까지)에게 다가가 (Approach) 번쩍 안고 "C'mere, you!" (Pick) →
 //!   HUG_WALK_SECS 동안 안고 걷다가 (Carry) 살며시 내려놓고 (Set) 🖐️ 쓰담쓰담 (Pat — 그 펫 머리 위에 하트, sync_hagrid). 안긴 펫은 버둥대지 않음
+//! - 🏰🤗 해리·헤르미온느 (PetSpot.pal — 손님도)를 만나면 (같은 바닥 HUG_REACH 안에 오면) 평소 놀이 주사위·쉬는 때와 따로 MEET_HUG_CHANCE로
+//!   곧장 안으러 감. 한 번 만난 펫은 (안았든 말든) MEET_CALM_SECS 동안 다시 굴리지 않음 (HagridMood.met).
+//!   안으러 다가가는 동안 그 펫은 서서 해그리드 쪽을 보며 기다림 (await_hug — 걷다 멀어지거나 다른 놀이로 새지 않게)
 //! - 🖐️ 쓰담 (Pat): 가끔 가까운 펫에게 다가가 쓰다듬기만
 //! - 🥚 용알 (Egg → Hatch): 가끔 앉아 EGG_SECS 동안 알을 품음 (알은 덮개 창 — CRACK_AT부터 금이 감) → 쩍! 아기 용이 나와 HATCH_SECS 동안 둘레를
 //!   파닥파닥 날다가 작은 불을 퐁 뿜고 사라짐 (MagicFx::Egg·Hatchling)
@@ -52,6 +55,11 @@ pub const SIDECAR_COVER: f64 = 0.3;
 /// 🤗 안을 펫: 같은 바닥 가로 이만큼 (내 몸 크기 배) 안, 내 몸의 이 배까지
 pub const HUG_REACH: f64 = 4.0;
 pub const HUG_MAX: f64 = 0.9;
+/// 🏰🤗 해리·헤르미온느를 만나면 곧장 안는 몫 · 그 펫을 다시 굴리기까지 (초)
+pub const MEET_HUG_CHANCE: f64 = 0.6;
+pub const MEET_CALM_SECS: (f64, f64) = (60.0, 120.0);
+/// 🤗 안으러 오는 해그리드를 서서 기다리는 시간 (초 — 다가가는 동안 매 틱 새로)
+pub const HUG_WAIT_SECS: f64 = 0.3;
 /// 🤗 다가가다 이만큼 못 닿으면 그만둠 (초)
 pub const APPROACH_SECS: f64 = 6.0;
 /// 🤗 번쩍 안기 · 안고 걷기 · 내려놓기 (그 가운데 HUG_RELEASE에 놓음) 시간 (초)
@@ -123,12 +131,18 @@ pub struct HagridMood {
     pub(super) ready_at: f64,
     /// 🖐️ 방금 쓰다듬은 펫 (sync_hagrid가 한 번 꺼내 하트)
     pat_now: Option<u64>,
+    /// 🏰 이 시각(clock)부터 해리·헤르미온느를 만나면 안음 (hush_wizardry가 끔)
+    pub(super) meet_ready_at: f64,
+    /// 🏰 만난 펫 (social_key)과 다시 굴릴 수 있는 시각
+    met: Vec<(u64, f64)>,
+    /// 🤗 (안기는 쪽) 해그리드가 안으러 오는 중: 이 시각까지 그 x 쪽을 보며 기다림 (sync_hagrid가 매 틱 새로)
+    hug_wait: Option<(f64, f64)>,
 }
 
 impl HagridMood {
     /// 시드로 난수를 따로 둠. 첫 놀이는 FIRST_SECS 뒤부터
     pub(super) fn new(seed: u64) -> Self {
-        HagridMood { rng: fastrand::Rng::with_seed(seed ^ 0x6861_6772), ready_at: FIRST_SECS, pat_now: None }
+        HagridMood { rng: fastrand::Rng::with_seed(seed ^ 0x6861_6772), ready_at: FIRST_SECS, pat_now: None, meet_ready_at: FIRST_SECS, met: Vec::new(), hug_wait: None }
     }
 }
 
@@ -233,7 +247,13 @@ impl Pet {
             self.tick_hagrid(dt, world, act, t + dt);
             return true;
         }
-        if !self.play_free() || self.romp_interrupted() || self.is_user_away() || self.clock < self.hagrid.ready_at {
+        if !self.play_free() || self.romp_interrupted() || self.is_user_away() {
+            return false;
+        }
+        if self.meet_pal(world) {
+            return true;
+        }
+        if self.clock < self.hagrid.ready_at {
             return false;
         }
         if self.hagrid.rng.f64() >= ACT_RATE * self.power() * dt {
@@ -273,15 +293,41 @@ impl Pet {
 
     /// 같은 바닥의 들 수 있는 가까운 펫 (가로 reach, 크기 max 배까지 — 내 몸 크기 배)
     fn nearby_pet(&self, reach: f64, max: f64) -> Option<PetSpot> {
-        let st = self.standing?;
+        let x = self.body.x;
+        self.nearby_spots(reach, max).min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs()))
+    }
+
+    /// 같은 바닥의 들 수 있는 펫들 (가로 reach, 크기 max 배까지 — 내 몸 크기 배)
+    fn nearby_spots(&self, reach: f64, max: f64) -> impl Iterator<Item = PetSpot> + '_ {
+        let owner = self.standing.map(|st| st.owner);
         let (x, y, size) = (self.body.x, self.body.y, self.cfg.size);
         self.hoist
             .spots
             .iter()
-            .filter(|s| s.liftable && s.owner == Some(st.owner) && (s.y - y).abs() <= crate::juggle::SAME_LEVEL_PX)
-            .filter(|s| (s.x - x).abs() <= reach * size && s.size <= max * size)
-            .min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs()))
+            .filter(move |s| owner.is_some() && s.liftable && s.owner == owner && (s.y - y).abs() <= crate::juggle::SAME_LEVEL_PX)
+            .filter(move |s| (s.x - x).abs() <= reach * size && s.size <= max * size)
             .copied()
+    }
+
+    /// 🏰🤗 곁에 새로 온 해리·헤르미온느: 한 번 굴려 MEET_HUG_CHANCE면 안으러 감 (그 펫은 MEET_CALM_SECS 동안 다시 안 굴림). 시작했으면 true
+    fn meet_pal(&mut self, world: &World) -> bool {
+        let clock = self.clock;
+        if clock < self.hagrid.meet_ready_at {
+            return false;
+        }
+        self.hagrid.met.retain(|&(_, until)| clock < until);
+        let met = &self.hagrid.met;
+        let Some(spot) = self.nearby_spots(HUG_REACH, HUG_MAX).filter(|s| s.pal && !met.iter().any(|&(k, _)| k == s.key)).min_by(|a, b| (a.x - self.body.x).abs().total_cmp(&(b.x - self.body.x).abs())) else {
+            return false;
+        };
+        let until = clock + behavior::range(&mut self.hagrid.rng, MEET_CALM_SECS);
+        self.hagrid.met.push((spot.key, until));
+        if self.hagrid.rng.f64() >= MEET_HUG_CHANCE {
+            return false;
+        }
+        let Some(x) = self.hoist_x(&spot, world) else { return false };
+        self.begin_hagrid(HagridAct::Approach { key: spot.key, x, then: Then::Hug });
+        true
     }
 
     /// 🏍️ 오토바이에 오름 (서 있을 때만): 가까운 작은 펫이 있으면 "Hop in!" 하고 사이드카에 태움
@@ -493,6 +539,36 @@ impl Pet {
         self.state = State::Hagrid { act: HagridAct::Pat { key }, t: 0.0 };
     }
 
+    /// 🤗 해그리드가 안으러 다가옴 (sync_hagrid가 매 틱): 잠깐 그쪽 (from_x)을 보며 서서 기다림
+    pub fn await_hug(&mut self, from_x: f64) {
+        self.hagrid.hug_wait = Some((self.clock + HUG_WAIT_SECS, from_x));
+    }
+
+    /// 🤗 해그리드가 안으러 오는 중이라 서서 기다림 (인사·놀이를 새로 시작하지 않음 — social_free)
+    pub fn awaiting_hug(&self) -> bool {
+        self.hagrid.hug_wait.is_some_and(|(until, _)| self.clock < until)
+    }
+
+    /// 🤗 해그리드를 기다리는 한 틱: 걷거나 쉬던 중이면 그 자리에 서서 해그리드 쪽을 봄 (다른 놀이를 시작하지 않음). 처리했으면 true
+    pub(super) fn update_hug_wait(&mut self, world: &World) -> bool {
+        let Some((until, from_x)) = self.hagrid.hug_wait else { return false };
+        if self.clock >= until || !matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. }) || self.standing.is_none() || self.romp_interrupted() || self.is_user_away() {
+            self.hagrid.hug_wait = None;
+            return false;
+        }
+        if !self.follow_anchor(world) {
+            self.hagrid.hug_wait = None;
+            self.start_fall();
+            return true;
+        }
+        if (from_x - self.body.x).abs() > 1.0 {
+            self.facing = (from_x - self.body.x).signum();
+        }
+        self.body.vx = 0.0;
+        self.state = State::Idle { remaining: 1.0, look: false };
+        true
+    }
+
     /// 🖐️ 해그리드가 쓰다듬음: 하트가 퐁 (하던 일은 그대로)
     pub fn be_patted(&mut self) {
         self.heart_timer = self.heart_timer.max(PAT_HEART_SECS);
@@ -516,9 +592,15 @@ impl Pet {
     }
 }
 
-/// 🖐️ 앱이 매 틱 동물 update 뒤에 (sync_lifts가 부름): 해그리드가 쓰다듬은 펫에게 하트
+/// 🖐️ 앱이 매 틱 동물 update 뒤에 (sync_lifts가 부름): 해그리드가 쓰다듬은 펫에게 하트, 🤗 안으러 가는 펫은 서서 기다리게 함
 pub(super) fn sync_hagrid<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
     for i in 0..pets.len() {
+        if let State::Hagrid { act: HagridAct::Approach { key, then: Then::Hug, .. }, .. } = pets[i].as_ref().state {
+            let x = pets[i].as_ref().body.x;
+            if let Some(j) = pets.iter().position(|p| p.as_ref().social_key == key) {
+                pets[j].as_mut().await_hug(x);
+            }
+        }
         let Some(key) = pets[i].as_mut().hagrid.pat_now.take() else { continue };
         if let Some(j) = pets.iter().position(|p| p.as_ref().social_key == key) {
             pets[j].as_mut().be_patted();

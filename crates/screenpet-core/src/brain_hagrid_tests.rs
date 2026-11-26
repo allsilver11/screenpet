@@ -182,6 +182,46 @@ fn he_hugs_a_pet_carries_it_sets_it_down_and_pats_it() {
     assert!(pets[1].standing.is_some() && !matches!(pets[0].state, State::Hagrid { .. }));
 }
 
+/// 🏰🤗 해리·헤르미온느를 만나면 (곁 HUG_REACH에 오면) MEET_HUG_CHANCE로 곧장 안으러 감 — 평소 놀이 주사위·쉬는 때와 따로.
+/// 한 번 만난 펫은 MEET_CALM_SECS 동안 다시 굴리지 않음 (안 안았어도). 다른 펫은 만나도 그냥 (평소 놀이로만)
+#[test]
+fn he_often_hugs_harry_or_hermione_when_they_meet_but_not_over_and_over() {
+    let w = world(vec![]);
+    let pal = |x: f64, w: &World| {
+        let mut p = buddy(x, w);
+        p.cfg.patronus = Some(crate::wizard::PatronusAnimal::Stag);
+        p.cfg.size = 0.85 / 1.2 * hagrid_cfg().size;
+        p
+    };
+    let hugging = |p: &Pet| matches!(p.state, State::Hagrid { act: HagridAct::Approach { key: 2, then: Then::Hug, .. } | HagridAct::Pick { key: 2 }, .. });
+    let mut hugged = 0;
+    for seed in 1..=30 {
+        let mut pets = vec![calm(800.0, seed, &w), pal(1000.0, &w)];
+        let mut got = false;
+        for _ in 0..(2.0 / DT) as usize {
+            step(&mut pets, &w);
+            got |= hugging(&pets[0]);
+        }
+        hugged += usize::from(got);
+        // 굴린 뒤엔 (안았든 말든) 한동안 또 안지 않음
+        while matches!(pets[0].state, State::Hagrid { .. }) {
+            step(&mut pets, &w);
+        }
+        for _ in 0..((hg::MEET_CALM_SECS.0 - 15.0) / DT) as usize {
+            step(&mut pets, &w);
+            assert!(!hugging(&pets[0]), "seed {seed}: 또 안음");
+        }
+    }
+    let want = hg::MEET_HUG_CHANCE * 30.0;
+    assert!((hugged as f64 - want).abs() <= 7.0, "{hugged}/30번 안음 (기대 {want})");
+    // 다른 펫 (해리·헤르미온느가 아님)은 만나도 곧장 안지 않음
+    let mut pets = vec![calm(800.0, 3, &w), buddy(1000.0, &w)];
+    for _ in 0..(30.0 / DT) as usize {
+        step(&mut pets, &w);
+        assert!(!matches!(pets[0].state, State::Hagrid { .. }));
+    }
+}
+
 /// 🖐️ 쓰담만: 다가가 쓰다듬고 하트. 곁에 펫이 없으면 시작하지 않음. 너무 큰 펫은 안지 않음
 #[test]
 fn he_pats_nearby_pets_and_does_not_hug_big_ones() {

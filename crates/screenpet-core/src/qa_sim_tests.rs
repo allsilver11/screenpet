@@ -1010,3 +1010,91 @@ fn qa_sim_trace() {
         }
     }
 }
+
+/// 🏰 호그와트 장면: 번들 동물 (ids — 청소년, 아무것도 끄지 않음)을 한 바닥 xs 자리에 풀어 놓고 앱 순서 (동물끼리 → 서로 보기 → 물건 보기 →
+/// update → sync_lifts)로 secs초 돌림. 바닥의 물건 (spots)은 가방에 넣으면 치움. 틱마다 each(지금 초, 동물들)
+fn hogwarts_scene(ids: &[&str], xs: &[f64], mut spots: Vec<ObjectSpot>, seed: u64, secs: f64, mut each: impl FnMut(f64, &[Pet])) {
+    let bundled = crate::test_util::bundled();
+    let world = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let mut pets: Vec<Pet> = ids
+        .iter()
+        .zip(xs)
+        .enumerate()
+        .map(|(i, (id, &x))| {
+            let cfg = bundled.iter().find(|(b, _)| b == id).unwrap_or_else(|| panic!("{id}")).1.clone();
+            Pet::new(cfg, x, 1040.0 - 200.0, seed * 31 + i as u64)
+        })
+        .collect();
+    let mut social = Social::new(seed);
+    for k in 0..(secs / DT) as u64 {
+        social.tick(DT, &mut pets);
+        hoist_moves::notice_pets(&mut pets);
+        for p in pets.iter_mut() {
+            p.notice_play_objects(&spots, &world);
+            p.update(DT, &world);
+            if let Some(ObjectPlay::Vanish { id }) = p.take_object_play() {
+                spots.retain(|s| s.id != id);
+            }
+            let _ = p.take_speech();
+        }
+        let _ = hoist_moves::sync_lifts(&mut pets);
+        social.carry(&mut pets);
+        each(k as f64 * DT, &pets);
+    }
+}
+
+/// 🧔🤗 해그리드가 해리·헤르미온느를 만나면 자주 번쩍 안아 줌: 한 화면에서 5분 안에 (seed 여섯 모두 한 번은, 평균 1.5번 넘게)
+#[test]
+fn qa_sim_hagrid_hugs_harry_and_hermione_when_they_meet() {
+    let mut total = 0;
+    for seed in 1..=6 {
+        let mut hugs = 0;
+        let mut was = false;
+        hogwarts_scene(&["hagrid", "harry", "hermione"], &[700.0, 1000.0, 1300.0], vec![], seed, 300.0, |_, pets| {
+            let friends = [pets[1].social_key(), pets[2].social_key()];
+            let now = matches!(pets[0].state, State::Hagrid { act: crate::brain::hagrid_moves::HagridAct::Pick { key }, .. } if friends.contains(&key));
+            hugs += usize::from(now && !was);
+            was = now;
+        });
+        assert!(hugs >= 1, "seed {seed}: 5분에 한 번도 안 안음");
+        total += hugs;
+    }
+    assert!(total >= 9, "5분씩 여섯 판에 {total}번 안음");
+}
+
+/// 🎒 해리·헤르미온느·볼드모트가 한 화면에 있으면 해리가 낄 결투는 대개 헤르미온느가 해리를 가방에 숨기고 대신 함:
+/// 6분 40초씩 여덟 판 — 거의 모든 판에 한 번은, 모두 합쳐 해리의 평소 결투보다 두 배 넘게
+#[test]
+fn qa_sim_hermione_usually_tucks_harry_before_the_duel() {
+    let (mut tucks, mut plain, mut seeds_with) = (0, 0, 0);
+    for seed in 1..=8 {
+        let (mut mine, mut was_t, mut was_d) = (0, false, false);
+        hogwarts_scene(&["harry", "hermione", "voldemort"], &[600.0, 1100.0, 1500.0], vec![], seed, 400.0, |_, pets| {
+            let t = pets[0].tucked_in().is_some();
+            let d = pets[0].dueling().is_some();
+            mine += usize::from(t && !was_t);
+            plain += usize::from(d && !was_d);
+            was_t = t;
+            was_d = d;
+        });
+        seeds_with += usize::from(mine > 0);
+        tucks += mine;
+    }
+    assert!(seeds_with >= 6 && tucks >= 2 * plain, "숨기기 {tucks} ({seeds_with}판) · 해리 평소 결투 {plain}");
+}
+
+/// 👜 바닥에 물건이 있으면 헤르미온느가 몇 분 안에 가방에 하나씩 넣고, 넣을수록 가방이 눈에 띄게 커짐 (seed 넷 모두 — 물건 하나여도)
+#[test]
+fn qa_sim_hermione_bags_the_floor_objects_and_the_bag_grows() {
+    let thing = |id: u64, x: f64| ObjectSpot { id, x, y: 1040.0, owner: Owner::Ground(0), half_w: 24.0, giant: false, local: false };
+    for seed in 1..=4 {
+        let mut biggest: f64 = 0.0;
+        hogwarts_scene(&["hermione"], &[900.0], vec![thing(1, 400.0), thing(2, 1300.0), thing(3, 1600.0)], seed, 240.0, |_, pets| {
+            biggest = biggest.max(pets[0].render().bag);
+        });
+        assert!(biggest >= crate::wizard::bag_growth(3) - 1e-9, "seed {seed}: 가방이 커지지 않음 ({biggest})");
+        let mut seen = false;
+        hogwarts_scene(&["hermione"], &[900.0], vec![thing(1, 1300.0)], seed, 240.0, |_, pets| seen |= pets[0].render().bag > 0.0);
+        assert!(seen, "seed {seed}: 하나뿐이어도 치움");
+    }
+}

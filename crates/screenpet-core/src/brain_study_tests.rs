@@ -144,7 +144,7 @@ fn the_bag_swallows_everything_on_the_floor_one_by_one_and_grows() {
     sorted.sort();
     assert_eq!(sorted, vec![1, 2, 3, 4, 5, 6, 7], "장난감(8) 말고 다 — 거대한 것도");
     assert_eq!(gone[0], 1, "가까운 것부터");
-    assert!(sizes.windows(2).all(|w| w[1] > w[0]) && sizes.len() >= 6, "커짐 {sizes:?}");
+    assert!(sizes.windows(2).all(|w| w[1] > w[0]) && sizes.len() > wz::BAG_FULL as usize, "커짐 {sizes:?}");
     assert!((sizes[0] - wz::BAG_START).abs() < 1e-9 && (sizes.last().unwrap() - 1.0).abs() < 1e-9);
     assert!(dragged && stuffed);
     assert!(said.contains(&Speech::AllClean));
@@ -156,15 +156,16 @@ fn the_bag_swallows_everything_on_the_floor_one_by_one_and_grows() {
     assert!(slow > 0.0 && slow < fast * 0.8, "{fast} {slow}");
 }
 
-/// 👜 물건이 BAG_MIN개 넘게 있을 때만 스스로 시작 (가끔) — 끼어들리면 가방은 그대로 두었다가 마저 치움
+/// 👜 물건이 BAG_MIN개 (하나)만 있어도 스스로 시작 (꽤 자주) — 손님은 안 함. 끼어들리면 가방은 그대로 두었다가 마저 치움
 #[test]
 fn she_tidies_up_on_her_own_and_finishes_after_an_interruption() {
     let w = world(vec![]);
     let mut p = calm(900.0, 3, &w);
     p.study.bag_ready_at = 0.0;
     let mut few = vec![thing(1, 1000.0, false, false)];
-    let (gone, _) = run(&mut p, &w, &mut few, 300.0, |_| {});
-    assert!(gone.is_empty(), "하나뿐이면 안 함");
+    let (gone, _) = run(&mut p, &w, &mut few, 120.0, |_| {});
+    assert_eq!(gone, vec![1], "하나뿐이어도 2분 안에 치움");
+    p.study.bag_ready_at = 0.0;
     // 손님은 친구 화면을 치우지 않음
     let mut guest = calm(900.0, 3, &w);
     guest.study.bag_ready_at = 0.0;

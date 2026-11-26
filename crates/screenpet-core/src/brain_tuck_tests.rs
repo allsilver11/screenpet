@@ -19,9 +19,10 @@ fn hermione() -> PetConfig {
     PetConfig { spells: SpellSet::of(&[Spell::Leviosa, Spell::Reparo]), bookworm: true, bag_cleaner: true, ..pet_cfg() }
 }
 
-/// 해리 (hx) · 헤르미온느 (mx) · 볼드모트 (vx) — 결투만 켬 (key 1·2·3)
+/// 해리 (hx) · 헤르미온느 (mx) · 볼드모트 (vx) — 결투만 켬 (key 1·2·3). 볼드모트 주사위는 가방 숨기기 (TUCK_CHANCE)가 나오는 seed로
 fn trio(hx: f64, mx: f64, vx: f64, w: &World) -> Vec<Pet> {
-    let mut pets = vec![still(harry(), hx, 1, w), still(hermione(), mx, 2, w), still(voldemort(), vx, 3, w)];
+    let dark = (3..).map(|seed| still(voldemort(), vx, seed, w)).find(|v| v.duel.rng.clone().f64() < wz::TUCK_CHANCE).unwrap();
+    let mut pets = vec![still(harry(), hx, 1, w), still(hermione(), mx, 2, w), dark];
     for (k, p) in pets.iter_mut().enumerate() {
         p.social_key = k as u64 + 1;
         p.duel.ready_at = 0.0;
@@ -102,10 +103,57 @@ fn hermione_hides_harry_in_her_bag_duels_voldemort_and_harry_pops_out() {
 #[test]
 fn far_apart_harry_duels_as_usual() {
     let w = world(vec![]);
-    let mut pets = trio(800.0, 100.0, 1300.0, &w);
+    let mut pets = trio(1800.0, 100.0, 900.0, &w);
     sync_lifts(&mut pets);
     assert_eq!(pets[0].dueling(), Some(3));
     assert_eq!(pets[0].tucked_in(), None);
+}
+
+/// 🎒 결투가 막 시작되려 하면 (해리만 결투 쉬는 때가 지났어도 — 헤르미온느가 끼어듦) 대개 (TUCK_CHANCE) 헤르미온느가 해리를 숨기고 대신 결투,
+/// 나머지는 평소 결투 (해리 vs 볼드모트). 해리가 옛 곁 (몸 4배)보다 좀 멀어도 (몸 6배) 숨김. 주사위는 결투가 시작될 때 한 번만
+#[test]
+fn hermione_usually_steps_in_even_when_only_harry_is_ready() {
+    let w = world(vec![]);
+    let (mut tucked, mut plain) = (0, 0);
+    let n = 40;
+    for seed in 0..n {
+        let size = pet_cfg().size;
+        let mut pets = vec![still(harry(), 500.0, seed * 3 + 1, &w), still(hermione(), 500.0 + 6.0 * size, seed * 3 + 2, &w), still(voldemort(), 1500.0, seed * 3 + 3, &w)];
+        for (k, p) in pets.iter_mut().enumerate() {
+            p.social_key = k as u64 + 1;
+        }
+        pets[0].duel.ready_at = 0.0;
+        pets[2].duel.ready_at = 0.0;
+        sync_lifts(&mut pets);
+        if pets[0].tucked_in() == Some(2) {
+            assert_eq!(pets[1].dueling(), Some(3));
+            tucked += 1;
+        } else {
+            assert_eq!(pets[0].dueling(), Some(3), "seed {seed}: 아니면 평소 결투");
+            assert_eq!(pets[1].dueling(), None);
+            plain += 1;
+        }
+    }
+    let want = wz::TUCK_CHANCE * n as f64;
+    assert!((tucked as f64 - want).abs() <= 8.0, "숨김 {tucked} · 평소 {plain} (기대 {want})");
+}
+
+/// 🎒 책을 읽던 헤르미온느도 책을 덮고 끼어듦 · 볼드모트와 너무 붙어 있으면 (DUEL_MIN 안) 가방을 벌리는 동안 서로 물러나 빛줄기를 쏠 만큼 벌어짐
+#[test]
+fn a_reading_hermione_steps_in_and_backs_off_from_a_too_close_voldemort() {
+    let w = world(vec![]);
+    let size = pet_cfg().size;
+    let mut pets = trio(700.0, 1000.0, 1000.0 + 0.3 * size, &w);
+    assert!(pets[1].start_reading());
+    sync_lifts(&mut pets);
+    assert_eq!(pets[0].tucked_in(), Some(2), "읽다가도 숨김");
+    assert_eq!(pets[1].dueling(), Some(3));
+    let mut said = Vec::new();
+    for _ in 0..((wz::HIDE_SECS + 0.1) / DT) as usize {
+        tick(&mut pets, &w, &mut said);
+    }
+    let gap = (pets[1].body.x - pets[2].body.x).abs();
+    assert!(gap >= wz::DUEL_MIN * size - 2.0, "물러남 {gap}");
 }
 
 /// 🎒 헤르미온느가 사라지면 (친구 화면으로 등) 해리가 바로 제자리에서 튀어나옴

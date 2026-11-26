@@ -8,7 +8,8 @@
 //!   저주: 해리 "Expelliarmus!" (빨강 — 지팡이가 날아감 MagicFx::Wand) · 헤르미온느 "Petrificus Totalus!" (금빛 — 통나무처럼 뻣뻣하게 쿵, render.topple) ·
 //!   볼드모트 "Stupefy!"·"Avada Kedavra!" 번갈아 (초록 — 튕겨 기절, 해롭지 않은 장난).
 //!   한쪽이 끊기면 (잡힘·볼일) 다른 쪽도 그만. 맞부딪힘 빛줄기는 빨강 쪽이 내놓음 (magic_fx → MagicFx::Duel), 저주 빛줄기는 쏜 쪽이
-//! - 🎒 셋이 모이면 (해리·헤르미온느·볼드모트) 헤르미온느가 해리를 가방에 숨기고 대신 결투 (Duel.hold·bag — brain_tuck.rs가 시작·해리를 맡음)
+//! - 🎒 셋이 모이면 (해리·헤르미온느·볼드모트) 결투가 시작될 때 대개 (TUCK_CHANCE) 헤르미온느가 해리를 가방에 숨기고 대신 결투 (Duel.hold·bag — brain_tuck.rs가 시작·해리를 맡음).
+//!   볼드모트와 너무 붙어 있었으면 (DUEL_MIN 안) 가방을 벌리는 hold 동안 둘이 뒷걸음질로 벌어짐
 //! - 🦌 패트로누스: sync_patronus가 patronus 펫 (해리 🦌 사슴·헤르미온느 🦦 수달 — cfg.patronus) 곁 (PATRONUS_REACH)에 디멘터가 오거나,
 //!   같은 화면 (PATRONUS_SEE)에서 디멘터가 다른 펫을 시무룩하게 하면 그 디멘터에게 "Expecto Patronum!" (State::Cast — brain_spell.rs) →
 //!   맞는 때 지팡이 끝에서 은빛 동물이 디멘터를 따라 달려가 (STAG_RUN_SECS — 수달은 물결치듯 오르내림, otter_bob) 닿으면 디멘터가 도망
@@ -188,6 +189,7 @@ impl Pet {
         self.duel.ready_at = f64::INFINITY;
         self.duel.patronus_ready_at = f64::INFINITY;
         self.hagrid.ready_at = f64::INFINITY;
+        self.hagrid.meet_ready_at = f64::INFINITY;
         self.portkey.ready_at = f64::INFINITY;
     }
 
@@ -320,6 +322,11 @@ impl Pet {
         let toward = if (duel.foe_at.0 - self.body.x).abs() > 1.0 { (duel.foe_at.0 - self.body.x).signum() } else { self.facing };
         if t < duel.hold {
             self.facing = toward;
+            // 🎒 너무 붙어 있으면 (DUEL_MIN 안) 가방을 벌리는 동안 뒷걸음질로 물러남
+            let (gap, want) = ((duel.foe_at.0 - self.body.x).abs(), wz::DUEL_MIN * self.cfg.size.max(duel.foe_size));
+            if gap < want {
+                self.duel_step(-toward * (self.cfg.walk_speed * dt).min(want - gap), world);
+            }
             self.state = State::Duel { duel, t };
             return true;
         }
@@ -508,7 +515,7 @@ pub(super) fn duel_reachable(a: &Pet, b: &Pet) -> bool {
 }
 
 /// ⚔️ 앱이 매 틱 동물 update 뒤에 (sync_lifts가 부름): 상대가 끊긴 결투를 그만두고, 한가한 빨강·초록 둘이 가까이 있으면 결투를 시작함
-/// (🎒 해리·헤르미온느·볼드모트가 다 있으면 가방 숨기기 결투가 먼저 — brain_tuck.rs)
+/// (🎒 해리·헤르미온느·볼드모트가 다 있으면 대개 가방 숨기기 결투로 — brain_tuck.rs)
 pub(super) fn sync_duels<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
     let find = |pets: &[T], key: u64| pets.iter().position(|p| p.as_ref().social_key == key);
     for i in 0..pets.len() {
@@ -530,8 +537,6 @@ pub(super) fn sync_duels<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
         duel.me = me.wand_tip_toward(foe.body.x);
         pets[i].as_mut().state = State::Duel { duel, t };
     }
-    // 🎒 셋이 모였으면 헤르미온느가 해리를 가방에 숨기고 대신 결투 (brain_tuck.rs) — 평소 결투보다 먼저
-    super::tuck_moves::start_tucks(pets);
     for i in 0..pets.len() {
         if pets[i].as_ref().duel_side() != Some(true) || !pets[i].as_ref().duel_ready() {
             continue;
@@ -541,6 +546,11 @@ pub(super) fn sync_duels<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
             if j == i || b.duel_side() != Some(false) || !b.duel_ready() || !duel_reachable(a, b) {
                 continue;
             }
+            // 🎒 셋이 모였으면 대개 헤르미온느가 해리를 가방에 숨기고 대신 결투 (brain_tuck.rs)
+            if super::tuck_moves::try_tuck(pets, j) {
+                break;
+            }
+            let (a, b) = (pets[i].as_ref(), pets[j].as_ref());
             let (red_tip, green_tip) = (a.wand_tip_toward(b.body.x), b.wand_tip_toward(a.body.x));
             let (red_key, green_key) = (a.social_key, b.social_key);
             let light = a.duel_color();

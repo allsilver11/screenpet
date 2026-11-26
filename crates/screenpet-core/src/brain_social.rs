@@ -92,6 +92,7 @@ impl Pet {
             && !self.thrown
             && !self.social_interrupted()
             && !self.presence_quiet()
+            && !self.awaiting_hug()
     }
 
     /// 디딤판 위에서 자는 중 (친구가 살짝 쳐다보기만 함)

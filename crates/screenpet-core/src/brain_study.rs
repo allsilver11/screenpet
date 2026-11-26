@@ -5,7 +5,7 @@
 //!   해리·해그리드가 방해하면 shush "Shh! I'm studying!" 하고 계속 읽거나 close_book "Oh, alright!" 하고 같이 놂)
 //! - 🙋 가끔 손을 번쩍 들고 "I know!" (Know, 앞모습)
 //! - 👜 (내 헤르미온느만 — 손님은 친구 물건을 치우지 않음) 같은 디딤판에 바닥의 물건 (똥·쓰레기·거대한 것 — 📌 장난감·사용자가 잡은 것·거미집에 걸린 것은 바닥에 없으니 안 보임)이
-//!   BAG_MIN개 넘게 있으면 가끔 "tidy time!" 하고 구슬 가방을 꺼내 가까운 것부터 하나씩 다가가 (Approach) 쏙 넣음 (Stuff — 앱이 뿅 치움, ObjectPlay::Vanish).
+//!   BAG_MIN개 (하나라도) 있으면 꽤 자주 (BAG_RATE) "tidy time!" 하고 구슬 가방을 꺼내 가까운 것부터 하나씩 다가가 (Approach) 쏙 넣음 (Stuff — 앱이 뿅 치움, ObjectPlay::Vanish).
 //!   넣을수록 가방이 커지고 (render.bag = wizard::bag_growth — 웹뷰가 손 자리 grip에 그림) 커지면 질질 끌며 느려짐 (bag_drag 그림, wizard::bag_pace).
 //!   더 없으면 "Phew! All clean!" (Done) 하고 가방이 뿅 사라짐. 끼어들리면 (잡힘 등) 가방은 그대로 두었다가 한가해지면 마저 치움
 //!

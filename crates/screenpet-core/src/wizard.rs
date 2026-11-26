@@ -12,7 +12,7 @@
 //!   · 🌑 Nox: 주문 주사위가 맞으면 NOX_CHANCE로 지팡이 끝 불이 꺼지며 작은 검은 연기 (NOX_PUFF 크기, NOX_HOLD_SECS 동안)
 //! - 📖 책 읽기 (책벌레): 초당 READ_RATE로 READ_SECS 동안 앉아 읽음, 가끔 STUDY_LINE_RATE로 "fascinating..."
 //! - 🙋 "I know!": 초당 KNOW_RATE로 KNOW_SECS 손 번쩍
-//! - 👜 가방 청소: 같은 디딤판에 물건이 BAG_MIN개 넘게 있으면 초당 BAG_RATE로 시작 — 가까운 것부터 하나씩 가방에 쏙 (BAG_STUFF_SECS, BAG_GULP_AT에 뿅).
+//! - 👜 가방 청소: 같은 디딤판에 물건이 BAG_MIN개 (하나라도) 있으면 초당 BAG_RATE로 시작 — 가까운 것부터 하나씩 가방에 쏙 (BAG_STUFF_SECS, BAG_GULP_AT에 뿅).
 //!   넣은 수마다 가방이 커짐 (bag_growth — BAG_FULL개에 다 큼), 가방이 BAG_DRAG_AT보다 크면 질질 끌며 느려짐 (BAG_DRAG_PACE).
 //!   다 치우면 "Phew! All clean!" 하고 가방이 사라짐. 다음은 BAG_CALM_SECS 뒤
 //! - ⚡ Stupefy (볼드모트): 초록 빛줄기 (CAST_HIT 조금 앞부터 휘두르기 끝까지 보임)에 맞은 펫이 💫 FAINT_SECS 동안 기절 (처음 FAINT_DROP_SECS는 쿵 착지 그림)
@@ -21,7 +21,7 @@
 //! - ⚔️ 결투: 해리 (Expelliarmus)와 볼드모트 (Stupefy)가 가로 DUEL_RANGE·세로 DUEL_RISE 안에서 둘 다 한가하면 마주 봄 → DUEL_AIM_SECS 뒤
 //!   빨강·초록 빛줄기가 뻗어 가운데에서 맞부딪혀 duel_clash로 밀고 당김 → 약 15초 한 판 (합·저주·맞음·피하기·달아나기 숫자는 duel_bout.rs) →
 //!   숨 고르고 DUEL_PART_SECS 동안 흩어짐. Expelliarmus에 맞으면 지팡이가 WAND_FLY_SECS 동안 날아감. 다음은 DUEL_CALM_SECS 뒤
-//! - 🎒 가방에 숨기: 볼드모트와 결투할 헤르미온느 곁 (TUCK_REACH)에 해리가 있으면 "In you go!" — HIDE_SECS 동안 가방 (HIDE_BAG 크기)을 벌려 들고
+//! - 🎒 가방에 숨기: 볼드모트와 결투가 시작될 때 헤르미온느 곁 (TUCK_REACH)에 해리가 있으면 TUCK_CHANCE로 "In you go!" — HIDE_SECS 동안 가방 (HIDE_BAG 크기)을 벌려 들고
 //!   해리는 TUCK_SECS 동안 작아지며 쏙 → 그 뒤 결투. 끝나면 해리가 TUCK_POP으로 튀어나옴 ("Phew!"), 길어도 TUCK_MAX_SECS 안에
 //! - 🦌 패트로누스 (pet.json `patronus` — 해리 "stag" 사슴 · 헤르미온느 "otter" 수달, PatronusAnimal): 디멘터가 PATRONUS_REACH 안에 오거나,
 //!   PATRONUS_SEE 안에서 다른 펫을 시무룩하게 하면 "Expecto Patronum!" — 은빛 동물이 STAG_RUN_SECS 동안 디멘터에게 달려가
@@ -176,22 +176,22 @@ pub const KNOW_RATE: f64 = 0.006;
 pub const KNOW_SECS: f64 = 2.2;
 
 /// 👜 처음 가방 청소를 할 수 있게 되는 때 (clock 초)
-pub const BAG_FIRST_SECS: f64 = 50.0;
-/// 👜 같은 디딤판에 이만큼 넘게 있으면 치움
-pub const BAG_MIN: usize = 2;
+pub const BAG_FIRST_SECS: f64 = 20.0;
+/// 👜 같은 디딤판에 이만큼 (하나라도) 있으면 치움
+pub const BAG_MIN: usize = 1;
 /// 👜 치울 게 있을 때 시작하는 빈도 (초당 — 🌱 power)
-pub const BAG_RATE: f64 = 0.02;
+pub const BAG_RATE: f64 = 0.06;
 /// 👜 다 치우고 다음까지 (초)
-pub const BAG_CALM_SECS: (f64, f64) = (90.0, 200.0);
+pub const BAG_CALM_SECS: (f64, f64) = (40.0, 90.0);
 /// 👜 가방에 넣는 시간 (bag_stuff 2칸 4fps), 그 가운데 물건이 뿅
 pub const BAG_STUFF_SECS: f64 = 0.7;
 pub const BAG_GULP_AT: f64 = 0.35;
 /// 👜 물건 하나에 다가가는 시간 상한 (초 — 다 큰 가방을 끌고 화면 끝에서 끝까지도 넉넉히) — 넘으면 그 물건은 건너뜀
 pub const BAG_APPROACH_SECS: f64 = 90.0;
 /// 👜 이만큼 넣으면 가방이 다 큼
-pub const BAG_FULL: u32 = 6;
+pub const BAG_FULL: u32 = 4;
 /// 👜 처음 가방 크기 (bag_growth 몫 — 0이면 안 보임)
-pub const BAG_START: f64 = 0.15;
+pub const BAG_START: f64 = 0.25;
 /// 👜 이보다 크면 질질 끌기 (bag_drag 그림)
 pub const BAG_DRAG_AT: f64 = 0.5;
 /// 👜 다 큰 가방을 끌 때 걷기 빠르기 배 (작을 땐 1 — 사이는 고르게)
@@ -250,12 +250,14 @@ pub const WAND_SIZE: f64 = 0.32;
 pub const CAMPFIRE_SIZE: f64 = 0.45;
 
 /// 🎒 헤르미온느 곁 이만큼 (몸 크기 배 — 큰 쪽, 가로) 안의 해리를 가방에 숨김 (세로는 DUEL_RISE)
-pub const TUCK_REACH: f64 = 4.0;
+pub const TUCK_REACH: f64 = 12.0;
+/// 🎒 셋이 모였을 때 결투가 시작되면 가방 숨기기로 가는 몫 (나머지는 평소 결투)
+pub const TUCK_CHANCE: f64 = 0.7;
 /// 🎒 결투 앞에 가방을 벌려 드는 시간 (초 — 그동안 해리가 쏙 들어감, 빛줄기는 그 뒤부터)
 pub const HIDE_SECS: f64 = 1.4;
 /// 🎒 해리가 작아지며 가방으로 들어가는 시간 (초)
 pub const TUCK_SECS: f64 = 0.8;
-/// 🎒 결투 동안 든 가방 크기 (render.bag — 0.15 … 1)
+/// 🎒 결투 동안 든 가방 크기 (render.bag — 0.25 … 1)
 pub const HIDE_BAG: f64 = 0.3;
 /// 🎒 가방에 있는 가장 긴 시간 (초 — 결투가 꼬여도 이만큼이면 나옴)
 pub const TUCK_MAX_SECS: f64 = 30.0;

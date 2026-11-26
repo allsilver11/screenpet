@@ -1490,6 +1490,11 @@ impl Pet {
         }
         // 🧙 빗자루 비행·🟡 스니치 (brain_broom.rs) · ⚔️ 결투 (brain_duel.rs) · ✨ 주문 (brain_spell.rs) · 🐍 나기니·hehehe (brain_dark.rs) ·
         // 📖 책·🙋 손들기·👜 가방 청소 (brain_study.rs)
+        // 🤗 해그리드가 안으러 오는 중이면 서서 기다림 (brain_hagrid.rs)
+        if self.update_hug_wait(world) {
+            self.on_started();
+            return;
+        }
         if self.update_broom(dt, world) || self.update_duel(dt, world) || self.update_spell(dt, world) || self.update_dark(dt, world) || self.update_study(dt, world)
             || self.update_hagrid(dt, world)
             || self.update_portkey(dt, world)

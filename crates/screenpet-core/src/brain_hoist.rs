@@ -61,6 +61,8 @@ pub struct PetSpot {
     pub carrying: bool,
     /// 📖 앉아서 책을 읽는 중 (헤르미온느 — 나중에 친구들이 방해하러 옴, brain_study.rs)
     pub reading: bool,
+    /// 🏰 해리·헤르미온느 (hogwarts — 해그리드가 만나면 자주 안아 줌, brain_hagrid.rs)
+    pub pal: bool,
 }
 
 /// 들어 올린 뒤 할 일
@@ -154,7 +156,7 @@ impl Pet {
 
     /// 🙆 다른 흐물이에게 보이는 이 동물
     pub fn pet_spot(&self) -> PetSpot {
-        PetSpot { key: self.social_key, x: self.body.x, y: self.body.y, owner: self.standing.map(|s| s.owner), size: self.cfg.size, liftable: self.lift_ok(), guest: self.guest.is_some(), carrying: self.carried_object().is_some(), reading: self.is_reading() }
+        PetSpot { key: self.social_key, x: self.body.x, y: self.body.y, owner: self.standing.map(|s| s.owner), size: self.cfg.size, liftable: self.lift_ok(), guest: self.guest.is_some(), carrying: self.carried_object().is_some(), reading: self.is_reading(), pal: matches!(self.hogwarts(), Some(crate::wizard::Hogwarts::Harry | crate::wizard::Hogwarts::Hermione)) }
     }
 
     /// 🙆 데려갈 수 있는 끝 (앱이 매 틱 — 손님 흐물이에게만, 그 끝의 친구가 새 버전이고 이 화면 주인의 동물이 놀러 갈 수 있을 때)

@@ -595,7 +595,7 @@ const listeningRender = listen("pet-render", (e) => {
   syncSeat(render.seat || 0);
 });
 
-// 👜 헤르미온느의 끝없는 구슬 가방 (백엔드 render.bag = 크기 0.15…1, 0 = 없음 — 코어 brain_study.rs): 그림 시트가 아니라 SVG로 그려
+// 👜 헤르미온느의 끝없는 구슬 가방 (백엔드 render.bag = 크기 0.25…1, 0 = 없음 — 코어 brain_study.rs): 그림 시트가 아니라 SVG로 그려
 // 넣은 수만큼 부드럽게 커짐. 끈은 지금 칸의 손 자리 (pet.json grip.bag_walk·bag_drag·bag_stuff — tools/draw_hermione.py)로 이어짐:
 // 작으면 손에 대롱대롱, 바닥에 닿을 만큼 크거나 끌기 (bag_drag)면 바닥에 놓여 몸 뒤로 끌림. 손 자리가 없는 칸 ("Phew!")이면 몸 뒤 바닥에.
 // 0으로 돌아가면 뿅 반짝이. 좌표는 칸 128 기준 (#bag viewBox) — #pet과 같이 좌우로 뒤집힘
