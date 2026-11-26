@@ -467,8 +467,7 @@ mod tests {
         let (secret_hex, public_hex) = letter::new_dev_keypair();
         let secret = letter::secret_from_hex(&secret_hex).unwrap();
         let public = letter::secret_from_hex(&public_hex).unwrap();
-        let mut photo = b"RIFF\0\0\0\0WEBP".to_vec();
-        photo.extend([1, 2, 3]);
+        let photo = letter::sample_webp(320, 200, 40);
         let s = letter::seal_letter(&letter::Letter { text: "성 사진".into(), ..Default::default() }, Some(&photo), &public).unwrap();
         let (with, sealed_photo) = s.photo.clone().unwrap();
         let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, rejected: false, private: false, sealed: with.clone(), img: sealed_photo.len() as u32 };

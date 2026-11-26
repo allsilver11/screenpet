@@ -80,7 +80,10 @@ const window = {
 let blobs = 0;
 const revoked = [];
 const URL = { createObjectURL: () => `blob:test/${++blobs}`, revokeObjectURL: (u) => revoked.push(u) };
-const ctx = vm.createContext({ window, document, console, setTimeout, clearTimeout, Date, Math, String, Promise, URL, Blob, atob, btoa, Uint8Array, Map, Set });
+// 창의 setTimeout 중 사진 기다리기(10초)만 붙잡아 손으로 돌림
+const timers = [];
+const fakeTimeout = (fn, ms) => (ms >= 10000 ? (timers.push({ fn, ms }), timers.length) : setTimeout(fn, ms));
+const ctx = vm.createContext({ window, document, console, setTimeout: fakeTimeout, clearTimeout, Date, Math, String, Promise, URL, Blob, atob, btoa, Uint8Array, Map, Set });
 // 페이지에 처음 적힌 #empty 글자
 const page = fs.readFileSync(path.join(UI, mode === "board" ? "board.html" : "mailbox.html"), "utf8");
 document.getElementById("empty").textContent = page.match(/<div id="empty">([^<]*)<\/div>/)[1];
@@ -162,12 +165,20 @@ const snap = () => ({ cards: cards().map((c) => c.textContent), classes: cards()
     const imgs = () => byId.list.all((e) => e.tag === "img").map((e) => e.src);
     const photoText = () => byId.list.all((e) => e.className === "photo").map((e) => e.textContent);
     const photo = {};
+    // 🖼️ 답이 안 오면 10초 뒤 "볼 수 없어요" (가짜 시계)
+    send([]);
+    timers.length = 0;
+    send([letter(6, { photo: true })]);
+    photo.timeoutMs = timers.map((t) => t.ms);
+    timers.forEach((t) => t.fn());
+    photo.timedOut = photoText()[0];
+    send([]);
     invoked.length = 0;
     send([letter(3, { photo: true }), letter(2)]);
     send([letter(3, { photo: true }), letter(2)]);
     photo.asked = invoked.filter(([c]) => c === "mailbox_photo");
     photo.loading = photoText();
-    const webp = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 1, 2, 3]).toString("base64");
+    const webp = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, 0, 0, 0, 0, 0x10, 0x02, 0x00, 0x9d, 0x01, 0x2a, 0x80, 0x02, 0x68, 0x01, 7]).toString("base64"); // 640×360 VP8
     listeners["mailbox-photo"]({ payload: { id: 9, kind: "image/webp", data: webp } }); // 청하지 않은 편지: 무시
     listeners["mailbox-photo"]({ payload: { id: 3, kind: "image/webp", data: webp } });
     photo.shown = imgs();
@@ -179,6 +190,11 @@ const snap = () => ({ cards: cards().map((c) => c.textContent), classes: cards()
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64");
     listeners["mailbox-photo"]({ payload: { id: 4, kind: "image/webp", data: png } });
     photo.bad = photoText()[0];
+    // 작은 파일이지만 16383×16383으로 풀리는 WebP(VP8L): 풀지 않음
+    send([letter(5, { photo: true })]);
+    const bomb = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x4c, 0, 0, 0, 0, 0x2f, 0xfe, 0xff, 0xff, 0x0f, 0]).toString("base64");
+    listeners["mailbox-photo"]({ payload: { id: 5, kind: "image/webp", data: bomb } });
+    photo.bomb = photoText()[0];
     photo.badImgs = imgs().length;
     photo.revoked = revoked.slice();
     out.photo = photo;

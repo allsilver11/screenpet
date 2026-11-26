@@ -49,14 +49,17 @@ fn a_photo_letter_lists_its_size_and_only_readers_get_the_photo() {
     let Some(ServerMsg::Letters { items, .. }) = hub.letters(&reader, rconn) else { panic!() };
     let id = items[0].id;
     assert_eq!(items[0].img, 3, "the list says how big, not the photo");
-    assert_eq!(hub.letter_img(&reader, rconn, id), Some(ServerMsg::LetterImg { id, img: "0102ff".into() }));
-    assert_eq!(hub.letter_img(&sender, sconn, id), None, "not a reader: ignored");
-    assert_eq!(hub.letter_img(&reader, rconn, 999), Some(ServerMsg::LetterImg { id: 999, img: String::new() }));
+    assert_eq!(hub.letter_img(&reader, rconn, id, true), Some(ServerMsg::LetterImg { id, img: "0102ff".into() }));
+    assert_eq!(hub.letter_img(&sender, sconn, id, true), None, "not a reader: ignored");
+    assert_eq!(hub.letter_img(&reader, rconn, 999, true), Some(ServerMsg::LetterImg { id: 999, img: String::new() }));
+    // 너무 잦은 요청도 답은 함 (빈 사진 — 창이 "볼 수 없어요"로, 눌러 다시)
+    assert_eq!(hub.letter_img(&reader, rconn, id, false), Some(ServerMsg::LetterImg { id, img: String::new() }));
+    assert_eq!(hub.letter_img(&sender, sconn, id, false), None);
     assert_eq!(hub.letter_with(&sender, sconn, "198.51.100.6", "abcd", "zz"), Some(ServerMsg::LetterRefused { reason: "size".into() }));
     assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "abcd"), Some(ServerMsg::LetterOk), "a letter without a photo");
     texts(&rrx);
     hub.letter_delete(&reader, rconn, id);
-    assert_eq!(hub.letter_img(&reader, rconn, id), Some(ServerMsg::LetterImg { id, img: String::new() }));
+    assert_eq!(hub.letter_img(&reader, rconn, id, true), Some(ServerMsg::LetterImg { id, img: String::new() }));
 }
 
 #[test]

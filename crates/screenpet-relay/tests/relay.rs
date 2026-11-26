@@ -465,20 +465,61 @@ fn frames_are_limited_to_64k() {
 }
 
 #[test]
-fn only_a_signed_in_photo_letter_may_be_a_big_text() {
+fn only_a_signed_in_photo_letter_with_a_slot_may_be_a_big_text() {
     let relay = start(Limits::default());
     let big = "ab".repeat(100 * 1024);
     let mut pre = Client::raw(&relay);
     pre.send(&json!({"t": "letter", "box": "00", "img": big}));
-    assert_eq!(pre.closed(2.0), Some(Some("too_large".into())), "not signed in");
+    assert_eq!(pre.closed(2.0), Some(Some("too_large".into())), "not signed in: the 64 KiB socket limit");
     let (mut a, _) = Client::login(&relay, &key(), "aaaa", &[]);
     a.send(&json!({"t": "letter", "box": "00", "img": big}));
+    assert_eq!(a.closed(2.0), Some(Some("too_large".into())), "signed in but no slot asked for");
+    let (mut a, _) = Client::login(&relay, &key(), "aaaa", &[]);
+    a.send(&json!({"t": "letter_begin"}));
+    a.expect("letter_go", 2.0);
+    a.send(&json!({"t": "letter", "box": "00", "img": big}));
     assert_eq!(a.expect("letter_refused", 2.0)["reason"], "new", "read and answered (a brand-new install may not send yet)");
-    a.send(&json!({"t": "friends", "keys": [big]}));
-    assert_eq!(a.closed(2.0), Some(Some("too_large".into())), "any other big text");
+    a.send(&json!({"t": "letter", "box": "00", "img": big}));
+    assert_eq!(a.closed(2.0), Some(Some("too_large".into())), "one slot, one big letter");
     let (mut b, _) = Client::login(&relay, &key(), "bbbb", &[]);
-    b.send(&json!({"t": "letter", "box": "00", "img": "ab".repeat(screenpet_proto::MAX_LETTER_TEXT / 2)}));
-    assert_eq!(b.closed(2.0), Some(Some("too_large".into())), "over the photo letter cap");
+    b.send(&json!({"t": "letter_begin"}));
+    b.expect("letter_go", 2.0);
+    b.send(&json!({"t": "friends", "keys": [big]}));
+    assert_eq!(b.closed(2.0), Some(Some("too_large".into())), "any other big text");
+    let (mut c, _) = Client::login(&relay, &key(), "cccc", &[]);
+    c.send(&json!({"t": "letter_begin"}));
+    c.expect("letter_go", 2.0);
+    c.send(&json!({"t": "letter", "box": "00", "img": "ab".repeat(screenpet_proto::MAX_LETTER_TEXT / 2)}));
+    assert_eq!(c.closed(2.0), Some(Some("too_large".into())), "over the photo letter cap");
+}
+
+#[test]
+fn big_letter_slots_are_few_and_come_back() {
+    let limits = Limits { max_photo_letters: 1, photo_letter_hold: Duration::from_millis(400), ..Limits::default() };
+    let relay = start(limits);
+    let (mut a, _) = Client::login(&relay, &key(), "aaaa", &[]);
+    let (mut b, _) = Client::login(&relay, &key(), "bbbb", &[]);
+    a.send(&json!({"t": "letter_begin"}));
+    a.expect("letter_go", 2.0);
+    b.send(&json!({"t": "letter_begin"}));
+    assert_eq!(b.expect("letter_refused", 2.0)["reason"], "photo_busy", "every slot taken");
+    a.send(&json!({"t": "letter", "box": "00"}));
+    a.expect("letter_refused", 2.0);
+    b.send(&json!({"t": "letter_begin"}));
+    b.expect("letter_go", 2.0);
+    // 쓰지 않은 자리는 잠시 뒤 돌아옴 (그 연결의 한도도 다시 64 KiB)
+    std::thread::sleep(Duration::from_millis(700));
+    b.send(&json!({"t": "ping"}));
+    b.expect("pong", 2.0);
+    a.send(&json!({"t": "letter_begin"}));
+    a.expect("letter_go", 2.0);
+    b.send(&json!({"t": "letter", "box": "00", "img": "ab".repeat(40 * 1024)}));
+    assert_eq!(b.closed(2.0), Some(Some("too_large".into())), "b's slot ran out");
+    drop(a);
+    std::thread::sleep(Duration::from_millis(300));
+    let (mut d, _) = Client::login(&relay, &key(), "dddd", &[]);
+    d.send(&json!({"t": "letter_begin"}));
+    d.expect("letter_go", 2.0);
 }
 
 #[test]

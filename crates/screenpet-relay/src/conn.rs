@@ -56,6 +56,15 @@ struct Authed {
     conn: u64,
 }
 
+/// 🖼️ 이 연결의 소켓 받기 한도를 사진 편지 크기(`true`) 또는 보통(`false`, `HEADER + MAX_FRAME`)으로 바꿈
+fn set_big(ws: &mut WebSocket<TcpStream>, big: bool) {
+    let max = if big { proto::MAX_LETTER_TEXT.max(HEADER + MAX_FRAME) } else { HEADER + MAX_FRAME };
+    ws.set_config(|c| {
+        c.max_message_size = Some(max);
+        c.max_frame_size = Some(max);
+    });
+}
+
 /// 제어 메시지 하나를 텍스트 프레임으로 씀. 실패면 false임
 fn text(ws: &mut WebSocket<TcpStream>, m: &ServerMsg) -> bool {
     ws.write(Message::text(m.to_json())).is_ok()
@@ -127,6 +136,8 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
     let mut stats_days: Vec<String> = Vec::new();
     let mut stats_gets = Bucket::new(STATS_GETS_PER_SEC, STATS_GETS_BURST);
     let mut photo_gets = Bucket::new(PHOTOS_PER_SEC, PHOTOS_BURST);
+    // 🖼️ 받은 사진 편지 자리와 받은 때 (있는 동안만 소켓 한도가 큼, 편지 하나나 `photo_letter_hold` 뒤 놓음)
+    let mut big: Option<(crate::hub::PhotoSlot, Instant)> = None;
     let reason: String = 'conn: loop {
         let ending = if hub.stopping() {
             Some("shutdown")
@@ -199,9 +210,9 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
             }
             match msg {
                 Message::Text(t) => {
-                    // 🖼️ `max_text`보다 큰 것은 인증한 연결의 사진 편지만 (`MAX_LETTER_TEXT`까지)
-                    let big = t.len() > lim.max_text;
-                    if big && (authed.is_none() || t.len() > proto::MAX_LETTER_TEXT) {
+                    // 🖼️ `max_text`보다 큰 것은 자리를 받은 인증 연결의 사진 편지만 (`MAX_LETTER_TEXT`까지)
+                    let is_big = t.len() > lim.max_text;
+                    if is_big && (authed.is_none() || big.is_none() || t.len() > proto::MAX_LETTER_TEXT) {
                         refuse(&mut ws, "too_large");
                         break bad(cid, peer, "too_large");
                     }
@@ -209,7 +220,7 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                         refuse(&mut ws, "bad_message");
                         break bad(cid, peer, "bad_json");
                     };
-                    if big && !matches!(cm, ClientMsg::Letter { .. }) {
+                    if is_big && !matches!(cm, ClientMsg::Letter { .. }) {
                         refuse(&mut ws, "too_large");
                         break bad(cid, peer, "too_large");
                     }
@@ -293,7 +304,20 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                                     }
                                 }
                                 ClientMsg::Ping => Some(ServerMsg::Pong),
+                                ClientMsg::LetterBegin => {
+                                    if big.is_none() {
+                                        big = hub.photo_slot().map(|s| (s, Instant::now()));
+                                        if big.is_some() {
+                                            set_big(&mut ws, true);
+                                        }
+                                    }
+                                    Some(if big.is_some() { ServerMsg::LetterGo } else { ServerMsg::LetterRefused { reason: "photo_busy".into() } })
+                                }
                                 ClientMsg::Letter { r#box, img } => {
+                                    // 🖼️ 자리는 편지 하나에 한 번
+                                    if big.take().is_some() {
+                                        set_big(&mut ws, false);
+                                    }
                                     // A few tries a minute per connection; the real limits are in the mailbox
                                     let now = Instant::now();
                                     while letters_sent.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60)) {
@@ -308,12 +332,12 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                                     }
                                 }
                                 ClientMsg::LetterImg { id } => {
-                                    if photo_gets.take(1.0) {
-                                        hub.letter_img(&a.key, a.conn, id)
-                                    } else {
+                                    // 너무 잦으면 빈 사진으로 답함 (창이 멈춰 기다리지 않게)
+                                    let allowed = photo_gets.take(1.0);
+                                    if !allowed {
                                         limited(cid, peer, "letter_img");
-                                        None
                                     }
+                                    hub.letter_img(&a.key, a.conn, id, allowed)
                                 }
                                 ClientMsg::Letters => hub.letters(&a.key, a.conn),
                                 ClientMsg::LetterRead { id } => {
@@ -400,6 +424,11 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
             }
         }
         let now = Instant::now();
+        // 🖼️ 쓰지 않은 사진 편지 자리는 돌려줌
+        if big.as_ref().is_some_and(|(_, at)| now.duration_since(*at) > lim.photo_letter_hold) {
+            big = None;
+            set_big(&mut ws, false);
+        }
         if authed.is_none() && now.duration_since(started) > lim.auth_timeout {
             refuse(&mut ws, "timeout");
             break "timeout".into();

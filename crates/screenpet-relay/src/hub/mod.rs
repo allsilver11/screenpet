@@ -388,6 +388,18 @@ pub struct Hub {
     stats: Mutex<crate::pet_stats::PetStats>,
     /// 통계 스냅숏을 뜨고 쓰는 동안 잡음 (`mailbox_save`와 같은 까닭)
     stats_save: Mutex<()>,
+    /// 🖼️ 지금 쓰고 있는 사진 편지 자리 수 (`Limits::max_photo_letters`까지)
+    photo_slots: Arc<AtomicUsize>,
+}
+
+/// 🖼️ 사진 편지 자리 하나 (놓으면 돌아감 — 연결이 끊겨도)
+pub(crate) struct PhotoSlot(Arc<AtomicUsize>);
+
+impl Drop for PhotoSlot {
+    /// 자리를 돌려줌
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl Hub {
@@ -430,6 +442,7 @@ impl Hub {
             next_conn: AtomicU64::new(1),
             threads: Mutex::new(Vec::new()),
             mailbox_save: Mutex::new(()),
+            photo_slots: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -495,6 +508,21 @@ impl Hub {
     /// `key`의 현재 연결이 `conn`인지 봄 (밀려난 연결이면 false임)
     fn is_current(st: &State, key: &str, conn: u64) -> bool {
         st.peers.get(key).is_some_and(|p| p.conn == conn)
+    }
+
+    /// 🖼️ 사진 편지 자리를 하나 받음 (다 찼으면 None)
+    pub(crate) fn photo_slot(&self) -> Option<PhotoSlot> {
+        let max = self.limits.max_photo_letters;
+        let mut n = self.photo_slots.load(Ordering::SeqCst);
+        loop {
+            if n >= max {
+                return None;
+            }
+            match self.photo_slots.compare_exchange(n, n + 1, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return Some(PhotoSlot(self.photo_slots.clone())),
+                Err(now) => n = now,
+            }
+        }
     }
 
     /// 접속 중인 설치 수 (로그·시험용)

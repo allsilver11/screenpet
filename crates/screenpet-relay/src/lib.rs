@@ -133,6 +133,10 @@ pub struct Limits {
     pub download_stall: Duration,
     /// 오래된 설치를 잊는 주기. 첫 정리는 시작 뒤 이만큼 뒤에 함 (접속해 있던 클라이언트가 돌아올 시간을 줌)
     pub prune_every: Duration,
+    /// 🖼️ 릴레이 전체에서 동시에 받는 사진 편지 자리 (자리마다 연결 하나의 소켓 한도가 `MAX_LETTER_TEXT`로 커짐)
+    pub max_photo_letters: usize,
+    /// 🖼️ 받은 자리를 쓰지 않으면 이만큼 뒤 돌려받음 (한도도 다시 64 KiB)
+    pub photo_letter_hold: Duration,
 }
 
 impl Default for Limits {
@@ -185,6 +189,8 @@ impl Default for Limits {
             download_grace: Duration::from_secs(20),
             download_stall: Duration::from_secs(10),
             prune_every: Duration::from_secs(600),
+            max_photo_letters: 32,
+            photo_letter_hold: Duration::from_secs(30),
         }
     }
 }

@@ -25,6 +25,10 @@ pub use screenpet_proto::{MAX_IMAGE, MAX_IMG_SEALED};
 const PHOTO_CHUNK: usize = 60_000;
 /// Noise 전송 메시지의 인증 태그 바이트
 const TAG: usize = 16;
+/// 🖼️ 사진 한 변 최대 px (앱은 640으로 만듦 — 작은 파일이 거대한 그림으로 풀리는 폭탄을 막음)
+pub const MAX_PHOTO_SIDE: u32 = 2048;
+/// 🖼️ 사진 최대 픽셀 수
+pub const MAX_PHOTO_PIXELS: u64 = 4_000_000;
 
 /// 편지 봉인에 쓰는 Noise 패턴임
 const PATTERN: &str = "Noise_N_25519_ChaChaPoly_BLAKE2s";
@@ -76,6 +80,87 @@ pub struct Letter {
     /// 🖼️ 같이 봉인한 사진 바이트 수 (0 = 사진 없음, 와이어에 안 나옴 — 옛 편지와 같은 모양)
     #[serde(skip_serializing_if = "is_zero")]
     pub img: u32,
+}
+
+/// 작은 끝 정수 (u16/u24/u32)를 읽음
+fn le(b: &[u8], at: usize, n: usize) -> Option<u32> {
+    let s = b.get(at..at + n)?;
+    Some(s.iter().rev().fold(0u32, |v, x| (v << 8) | *x as u32))
+}
+
+/// 🖼️ 머리에서 그림 크기(가로, 세로)를 읽음: WebP VP8·VP8L·VP8X, JPEG SOFn. 못 읽으면 None (풀지 않고 머리만 봄)
+pub fn photo_size(b: &[u8]) -> Option<(u32, u32)> {
+    match photo_kind(b)? {
+        "image/webp" => match b.get(12..16)? {
+            b"VP8 " => {
+                if b.get(23..26)? != [0x9d, 0x01, 0x2a] {
+                    return None;
+                }
+                Some((le(b, 26, 2)? & 0x3fff, le(b, 28, 2)? & 0x3fff))
+            }
+            b"VP8L" => {
+                if *b.get(20)? != 0x2f {
+                    return None;
+                }
+                let bits = le(b, 21, 4)?;
+                Some(((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1))
+            }
+            b"VP8X" => Some((le(b, 24, 3)? + 1, le(b, 27, 3)? + 1)),
+            _ => None,
+        },
+        _ => {
+            let mut i = 2;
+            loop {
+                if *b.get(i)? != 0xFF {
+                    return None;
+                }
+                let m = *b.get(i + 1)?;
+                match m {
+                    0xFF => i += 1,
+                    0x01 | 0xD0..=0xD7 => i += 2,
+                    0xD8 | 0xD9 | 0xDA => return None,
+                    0xC0..=0xCF if !matches!(m, 0xC4 | 0xC8 | 0xCC) => {
+                        let be = |at: usize| Some(((*b.get(at)? as u32) << 8) | *b.get(at + 1)? as u32);
+                        return Some((be(i + 7)?, be(i + 5)?));
+                    }
+                    _ => {
+                        let len = ((*b.get(i + 2)? as usize) << 8) | *b.get(i + 3)? as usize;
+                        if len < 2 {
+                            return None;
+                        }
+                        i += 2 + len;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 🖼️ 받아 줄 사진인지 봄: WebP/JPEG, 크기를 읽을 수 있고, 한 변 ≤ `MAX_PHOTO_SIDE`, 픽셀 ≤ `MAX_PHOTO_PIXELS`
+pub fn photo_ok(b: &[u8]) -> bool {
+    photo_size(b).is_some_and(|(w, h)| w > 0 && h > 0 && w <= MAX_PHOTO_SIDE && h <= MAX_PHOTO_SIDE && (w as u64) * (h as u64) <= MAX_PHOTO_PIXELS)
+}
+
+/// 시험용 WebP(VP8) 머리 + 채움 (`len` 바이트, 다른 크레이트 시험도 씀)
+#[doc(hidden)]
+pub fn sample_webp(w: u16, h: u16, len: usize) -> Vec<u8> {
+    let mut v = b"RIFF\0\0\0\0WEBPVP8 \0\0\0\0\x10\x02\x00\x9d\x01\x2a".to_vec();
+    v.extend(w.to_le_bytes());
+    v.extend(h.to_le_bytes());
+    v.resize(len.max(v.len()), 7);
+    v
+}
+
+/// 시험용 JPEG(APP0 + SOF0) 머리 + 채움 (`len` 바이트)
+#[doc(hidden)]
+pub fn sample_jpeg(w: u16, h: u16, len: usize) -> Vec<u8> {
+    let mut v = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+    v.extend([0u8; 14]);
+    v.extend([0xFF, 0xC0, 0x00, 0x11, 0x08]);
+    v.extend(h.to_be_bytes());
+    v.extend(w.to_be_bytes());
+    v.resize(len.max(v.len()), 0);
+    v
 }
 
 /// 봉인한 편지임: 사진 없는 봉투와, 사진이 있으면 (사진을 말하는 봉투, 봉인 사진)
@@ -180,9 +265,15 @@ fn seal_session(letter: &Letter, to: &[u8; 32]) -> Option<(Vec<u8>, snow::Handsh
 pub fn seal_letter(letter: &Letter, photo: Option<&[u8]>, to: &[u8; 32]) -> Option<Sealed> {
     let plain = seal(letter, to)?;
     let Some(photo) = photo else { return Some(Sealed { plain, photo: None }) };
-    if photo.is_empty() || photo.len() > MAX_IMAGE || photo_kind(photo).is_none() {
+    if photo.is_empty() || photo.len() > MAX_IMAGE || !photo_ok(photo) {
         return None;
     }
+    let photo = seal_unchecked(letter, photo, to)?;
+    Some(Sealed { plain, photo: Some(photo) })
+}
+
+/// 사진을 확인하지 않고 (사진을 말하는 봉투, 봉인 사진)을 만듦 (`seal_letter`가 먼저 확인함, 시험은 폭탄을 봉할 때 씀)
+fn seal_unchecked(letter: &Letter, photo: &[u8], to: &[u8; 32]) -> Option<(Vec<u8>, Vec<u8>)> {
     let with = Letter { img: photo.len() as u32, ..clean(letter.clone())? };
     let (sealed, hs) = seal_session(&with, to)?;
     let mut t = hs.into_transport_mode().ok()?;
@@ -193,11 +284,11 @@ pub fn seal_letter(letter: &Letter, photo: Option<&[u8]>, to: &[u8; 32]) -> Opti
         out.extend_from_slice(&(n as u16).to_be_bytes());
         out.extend_from_slice(&c[..n]);
     }
-    (out.len() <= MAX_IMG_SEALED).then_some(Sealed { plain, photo: Some((sealed, out)) })
+    (out.len() <= MAX_IMG_SEALED).then_some((sealed, out))
 }
 
 /// 🖼️ 봉투 `sealed`에 묶인 봉인 사진을 엶. 봉투가 사진을 말하지 않거나, 길이가 다르거나, 바뀌었거나,
-/// WebP/JPEG가 아니면 None임
+/// WebP/JPEG가 아니거나 너무 큰 그림(`photo_ok`)이면 None임
 pub fn open_photo(sealed: &[u8], photo: &[u8], secret: &[u8; 32]) -> Option<Vec<u8>> {
     if sealed.is_empty() || sealed.len() > MAX_SEALED || photo.is_empty() || photo.len() > MAX_IMG_SEALED {
         return None;
@@ -226,7 +317,7 @@ pub fn open_photo(sealed: &[u8], photo: &[u8], secret: &[u8; 32]) -> Option<Vec<
         }
         rest = &rest[len..];
     }
-    (out.len() == want && photo_kind(&out).is_some()).then_some(out)
+    (out.len() == want && photo_ok(&out)).then_some(out)
 }
 
 /// 개발자 비밀키로 봉인 편지를 엶. 우리 것이 아니거나 바뀌었거나 편지로 안 읽히면 None임.
@@ -297,11 +388,42 @@ mod tests {
         assert!(seal(&Letter::default(), &public).is_none(), "nothing to say");
     }
 
-    /// 시험용 WebP 머리 + 채움 (`len` 바이트)
+    /// 시험용 640×360 WebP 머리 + 채움 (`len` 바이트)
     fn webp(len: usize) -> Vec<u8> {
-        let mut v = b"RIFF\0\0\0\0WEBPVP8 ".to_vec();
-        v.extend((0..len - v.len()).map(|i| (i * 7 % 251) as u8));
-        v
+        sample_webp(640, 360, len)
+    }
+
+    #[test]
+    fn photo_sizes_are_read_from_the_headers_and_bombs_are_refused() {
+        assert_eq!(photo_size(&sample_webp(640, 360, 500)), Some((640, 360)), "VP8 (lossy)");
+        assert_eq!(photo_size(&sample_jpeg(800, 600, 500)), Some((800, 600)), "JPEG SOF0");
+        // VP8L (무손실): 서명 0x2f, 14비트씩 (w-1), (h-1)
+        let (w, h) = (16383u32, 16383u32);
+        let bits = (w - 1) | ((h - 1) << 14);
+        let mut vp8l = b"RIFF\0\0\0\0WEBPVP8L\0\0\0\0\x2f".to_vec();
+        vp8l.extend(bits.to_le_bytes());
+        vp8l.resize(200, 0);
+        assert_eq!(photo_size(&vp8l), Some((16383, 16383)));
+        // VP8X (확장): 캔버스 24비트씩 (w-1), (h-1)
+        let mut vp8x = b"RIFF\0\0\0\0WEBPVP8X\x0a\0\0\0\0\0\0\0".to_vec();
+        vp8x.extend([0xFF, 0x0F, 0x00, 0xFF, 0x0F, 0x00]);
+        vp8x.resize(200, 0);
+        assert_eq!(photo_size(&vp8x), Some((4096, 4096)));
+        assert_eq!(photo_size(b"RIFF\0\0\0\0WEBPVP8 "), None, "cut short");
+        let mut no_sof = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0, 0, 0xFF, 0xD9];
+        no_sof.resize(100, 0);
+        assert_eq!(photo_size(&no_sof), None, "a JPEG without a frame header");
+        assert!(photo_ok(&sample_webp(2048, 1953, 500)), "≤ 2048 a side, ≤ 4 MP");
+        assert!(!photo_ok(&sample_webp(2049, 100, 500)) && !photo_ok(&sample_jpeg(100, 2049, 500)), "a side over 2048");
+        assert!(!photo_ok(&sample_webp(2048, 2048, 500)), "over 4 MP");
+        assert!(!photo_ok(&vp8l) && !photo_ok(&vp8x), "a tiny file that unpacks huge");
+        assert!(!photo_ok(&sample_webp(0, 10, 500)), "no pixels");
+        // 개발자 쪽 open_photo도 다시 봄 (고친 앱이 봉해 보낸 폭탄)
+        let (secret, public) = keypair();
+        let l = Letter { text: "폭탄".into(), ..Default::default() };
+        assert!(seal_letter(&l, Some(&vp8l), &public).is_none(), "the app does not seal it");
+        let (with, sealed) = seal_unchecked(&l, &vp8l, &public).unwrap();
+        assert!(open_photo(&with, &sealed, &secret).is_none(), "nor does the developer open it");
     }
 
     #[test]
@@ -336,8 +458,7 @@ mod tests {
         let (_, public) = keypair();
         let l = Letter { text: "사진".into(), ..Default::default() };
         assert!(seal_letter(&l, Some(&webp(MAX_IMAGE + 1)), &public).is_none(), "too big");
-        let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0];
-        jpeg.resize(2000, 9);
+        let jpeg = sample_jpeg(640, 480, 2000);
         assert!(seal_letter(&l, Some(&jpeg), &public).unwrap().photo.is_some());
         let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
         png.resize(2000, 9);

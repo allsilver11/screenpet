@@ -154,7 +154,7 @@ Relay::start (lib.rs:224)
 - 속도 표 키 상한 8192, 네트워크당 16 (`hub/limits.rs:69` `MAX_RATE_KEYS`, `:90` `MAX_KEYS_PER_PARENT`).
 - 네트워크당 전체 대역폭 몫 1/16 (`hub/routing.rs:6` `NET_BYTES_SHARE`).
 - 편지함 한도 (`mailbox.rs:14-28`): 키당 하루 5, 주소당 10, 전체 50, 2일 이상 본 키만, 봉인 ≤ 8 KiB, 200통에서 새 편지 거절.
-- 🖼️ 사진 (v5): 편지마다 하나, 봉인 사진 ≤ `MAX_PHOTO`(120 KiB + 256). 같은 편지 한도를 셈 (사진만 따로 세지 않음) → 하루 최대 50장 ≈ 6 MiB, 편지함이 다 차도 200장 ≈ 24 MiB. 사진 편지 텍스트 메시지는 인증한 연결만 `MAX_LETTER_TEXT`(≈ 258 KiB)까지 (`conn.rs`), 독자의 `letter_img`는 연결당 초에 하나(몰아 10).
+- 🖼️ 사진 (v5): 편지마다 하나, 봉인 사진 ≤ `MAX_PHOTO`(120 KiB + 256). 같은 편지 한도를 셈 (사진만 따로 세지 않음) → 하루 최대 50장 ≈ 6 MiB, 편지함이 다 차도 200장 ≈ 24 MiB. 사진 편지는 `letter_begin`으로 자리(`Limits::max_photo_letters` = 32, 놓지 않으면 `photo_letter_hold` = 30초 뒤 돌려받음, 끊겨도 돌아감)를 받은 인증 연결만, 그 연결의 소켓 한도를 `MAX_LETTER_TEXT`(≈ 258 KiB)로 키워 하나 받음 (`conn.rs` `set_big`, `hub::PhotoSlot`). 인증 전·자리 없는 연결은 64 KiB 그대로. 독자의 `letter_img`는 연결당 초에 하나(몰아 10), 넘으면 빈 사진으로 답함.
 - 공개 요약: `board_put` 하나에 ≤ 20, 이름 ≤ 16자, 줄 ≤ 80자, 5개/쪽 (`crates/screenpet-proto/src/board.rs`).
 
 ---

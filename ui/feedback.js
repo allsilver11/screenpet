@@ -20,6 +20,9 @@ const hintEl = document.getElementById("photo-hint");
 let sending = false;
 // 붙인 사진 {bytes, type, url} (없으면 null)
 let photo = null;
+// 🖼️ 줄이는 중인 사진 수, 마지막 붙이기 번호 (나중에 붙인 것만 남김). 줄이는 동안은 보내지 않음 (글만 가고 사진이 뒤늦게 붙어 보이지 않게)
+let shrinking = 0;
+let attachNo = 0;
 
 // 릴레이(또는 앱)가 알려 준 이유 → 한 줄
 function reasonText(reason) {
@@ -35,6 +38,8 @@ function reasonText(reason) {
       return "건의함이 꽉 찼어요 — 나중에 보내 주세요";
     case "size":
       return "너무 길어요";
+    case "photo_busy":
+      return "지금 사진 편지가 몰려요 — 잠시 뒤 다시 보내 주세요";
     case "photo":
       return "사진을 붙일 수 없어요 — 다른 사진을 골라 주세요";
     default:
@@ -60,8 +65,19 @@ function clearPhoto() {
 // 고른·붙인 파일을 작게 줄여 붙임 (한 장만 — 새로 붙이면 바뀜)
 async function attach(file) {
   if (sending) return;
+  const no = ++attachNo;
+  shrinking++;
+  okBtn.disabled = true;
   noteEl.textContent = "사진을 줄이는 중…";
-  const r = await shrinkPhoto(file);
+  let r;
+  try {
+    r = await shrinkPhoto(file);
+  } finally {
+    shrinking--;
+    okBtn.disabled = sending || shrinking > 0;
+  }
+  // 그새 더 새 사진을 붙였거나 보내기 시작했으면 버림
+  if (no !== attachNo || sending) return;
   if (r.error) {
     noteEl.textContent = r.error === "big" ? "사진이 너무 커요 — 화면 일부만 캡처해 주세요" : "사진을 붙일 수 없어요 — 다른 사진을 골라 주세요";
     return;
@@ -83,7 +99,7 @@ function count() {
 // 편지를 보냄 (보내는 중이면 무시)
 function submit() {
   const text = inputEl.value.trim();
-  if (!text || sending) return;
+  if (!text || sending || shrinking > 0) return;
   sending = true;
   okBtn.disabled = true;
   noteEl.textContent = "펫이 편지를 들고 가는 중…";
@@ -93,7 +109,7 @@ function submit() {
 // 보낸 결과를 한 줄로 보이고 버튼을 다시 켬
 function result({ ok, reason, photo_dropped }) {
   sending = false;
-  okBtn.disabled = false;
+  okBtn.disabled = shrinking > 0;
   if (ok) {
     noteEl.textContent = sentText(!!photo_dropped);
     inputEl.value = "";

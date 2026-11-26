@@ -15,12 +15,69 @@ const PHOTO_MAX_PIXELS = 40_000_000;
 const PHOTO_QUALITIES = [0.8, 0.7, 0.6, 0.5];
 /** 긴 변이 이만큼 작아져도 안 들면 포기함 */
 const PHOTO_MIN_SIDE = 160;
+/** 받은 사진 한 변 최대 px, 최대 픽셀 수 (letter::MAX_PHOTO_SIDE·MAX_PHOTO_PIXELS — 작은 파일이 거대한 그림으로 풀리는 폭탄을 막음) */
+const PHOTO_OPEN_SIDE = 2048;
+const PHOTO_OPEN_PIXELS = 4_000_000;
 
 /** 머리 바이트로 본 형식 (WebP, JPEG만 — Rust letter::photo_kind와 같음) */
 function photoKind(b) {
   if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
   if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
   return null;
+}
+
+/** 머리에서 읽은 그림 크기 [가로, 세로] (WebP VP8·VP8L·VP8X, JPEG SOFn — Rust letter::photo_size와 같음). 못 읽으면 null */
+function photoSize(b) {
+  const kind = photoKind(b);
+  const le = (at, n) => {
+    if (at + n > b.length) return null;
+    let v = 0;
+    for (let i = n - 1; i >= 0; i--) v = v * 256 + b[at + i];
+    return v;
+  };
+  if (kind === "image/webp") {
+    const tag = String.fromCharCode(b[12], b[13], b[14], b[15]);
+    if (tag === "VP8 ") {
+      if (b.length < 30 || b[23] !== 0x9d || b[24] !== 0x01 || b[25] !== 0x2a) return null;
+      return [le(26, 2) & 0x3fff, le(28, 2) & 0x3fff];
+    }
+    if (tag === "VP8L") {
+      const bits = le(21, 4);
+      if (b[20] !== 0x2f || bits === null) return null;
+      return [(bits % 16384) + 1, (Math.floor(bits / 16384) % 16384) + 1];
+    }
+    if (tag === "VP8X") {
+      const w = le(24, 3);
+      const h = le(27, 3);
+      return w === null || h === null ? null : [w + 1, h + 1];
+    }
+    return null;
+  }
+  if (kind !== "image/jpeg") return null;
+  let i = 2;
+  while (i + 1 < b.length) {
+    if (b[i] !== 0xff) return null;
+    const m = b[i + 1];
+    if (m === 0xff) i += 1;
+    else if (m === 0x01 || (m >= 0xd0 && m <= 0xd7)) i += 2;
+    else if (m === 0xd8 || m === 0xd9 || m === 0xda) return null;
+    else if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+      if (i + 9 > b.length) return null;
+      return [b[i + 7] * 256 + b[i + 8], b[i + 5] * 256 + b[i + 6]];
+    } else {
+      if (i + 4 > b.length) return null;
+      const len = b[i + 2] * 256 + b[i + 3];
+      if (len < 2) return null;
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+
+/** 풀어도 되는 사진인지: 크기를 읽을 수 있고 한 변 ≤ 2048, 픽셀 ≤ 4 MP */
+function photoOk(b) {
+  const s = photoSize(b);
+  return !!s && s[0] > 0 && s[1] > 0 && s[0] <= PHOTO_OPEN_SIDE && s[1] <= PHOTO_OPEN_SIDE && s[0] * s[1] <= PHOTO_OPEN_PIXELS;
 }
 
 /** w×h 그림을 encode(w, h, type, quality) → Blob으로 줄여 한도 안에 넣음: {blob, w, h, type} 또는 null (아무리 해도 안 듦).

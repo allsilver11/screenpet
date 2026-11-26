@@ -50,6 +50,8 @@ fn every_client_message() {
     // 🖼️ v5: 사진 덩어리는 따로 (없으면 옛 모양 그대로)
     client(ClientMsg::Letter { r#box: "00ff".into(), img: "0102".into() }, r#"{"t":"letter","box":"00ff","img":"0102"}"#);
     client(ClientMsg::LetterImg { id: 4 }, r#"{"t":"letter_img","id":4}"#);
+    // 🖼️ 큰 편지 자리를 먼저 청함 → letter_go 또는 letter_refused {reason: photo_busy}
+    client(ClientMsg::LetterBegin, r#"{"t":"letter_begin"}"#);
     client(ClientMsg::Letters, r#"{"t":"letters"}"#);
     client(ClientMsg::LetterRead { id: 4 }, r#"{"t":"letter_read","id":4}"#);
     client(ClientMsg::LetterDelete { id: 4 }, r#"{"t":"letter_delete","id":4}"#);
@@ -146,6 +148,7 @@ fn every_server_message() {
         r#"{"t":"letter_new","item":{"id":7,"at":1800000000,"from":"ab","read":true,"done":false,"rejected":false,"private":false,"box":"00ff","img":300}}"#,
     );
     server(ServerMsg::LetterImg { id: 7, img: "0102".into() }, r#"{"t":"letter_img","id":7,"img":"0102"}"#);
+    server(ServerMsg::LetterGo, r#"{"t":"letter_go"}"#);
     server(ServerMsg::Weather { place: "yongin".into(), code: 75, at: 1_800_000_000 }, r#"{"t":"weather","place":"yongin","code":75,"at":1800000000}"#);
     server(
         ServerMsg::BoardPage {

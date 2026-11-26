@@ -159,8 +159,9 @@ sequenceDiagram
 | `board_list` | `page` | 📮 공개 건의함 한 쪽 → `board_page` | **3** | 모두 |
 | `stats_report` | `report{day, v, kept[], chosen{}, changed[{from,to,n}]}` | 📊 지난날 익명 펫 통계 (하루 한 번, 연결당 날마다 한 번) → `stats_ok` | **4** | 모두 (동의한 앱만 보냄) |
 | `stats_get` | `before?` | 📊 `before`보다 앞선 날의 합계 한 쪽 → `stats_days` (앱은 `more`인 동안 차례로 청해 모음) | **4** | 편지함 독자 |
-| `letter` + `img` | `box, img` (hex) | 🖼️ 사진 붙은 편지: `box`는 사진을 말하는 봉투, `img`는 같은 Noise 세션으로 이어 봉인한 사진 (≤ 120 KiB + 256). 텍스트 전체 ≤ `MAX_LETTER_TEXT`(약 258 KiB) — `max_text`(16 KiB)보다 큰 텍스트는 인증한 연결의 `letter`만. 옛 릴레이(v4 이하)는 큰 메시지에 연결을 끊으므로 앱은 사진 없는 봉투만 보내고 창에 "글만 갔어요" | **5** | 모두 |
-| `letter_img` | `id` | 🖼️ 편지 사진 → `letter_img` (연결당 초에 하나, 몰아 10) | **5** | 편지함 독자 |
+| `letter` + `img` | `box, img` (hex) | 🖼️ 사진 붙은 편지: `box`는 사진을 말하는 봉투, `img`는 같은 Noise 세션으로 이어 봉인한 사진 (≤ 120 KiB + 256). 텍스트 전체 ≤ `MAX_LETTER_TEXT`(약 258 KiB) — 먼저 `letter_begin` → `letter_go`를 받은 인증 연결의 `letter` 하나만 16 KiB를 넘을 수 있음. 옛 릴레이(v4 이하)는 큰 메시지에 연결을 끊으므로 앱은 사진 없는 봉투만 보내고 창에 "글만 갔어요" | **5** | 모두 |
+| `letter_begin` | – | 🖼️ 사진 편지 자리 청하기 → `letter_go` 또는 `letter_refused {reason: photo_busy}`. 자리를 받은 연결만 소켓 받기 한도가 64 KiB → `MAX_LETTER_TEXT`로 커짐 (편지 하나, 또는 30초 동안). 릴레이 전체 동시 32자리 (`Limits::max_photo_letters`) | **5** | 모두 |
+| `letter_img` | `id` | 🖼️ 편지 사진 → `letter_img` (연결당 초에 하나, 몰아 10 — 넘으면 빈 `img`로 답함) | **5** | 편지함 독자 |
 
 ### 3.2 릴레이 → 앱 (`ServerMsg`, `relay.rs:135`)
 
@@ -185,9 +186,10 @@ sequenceDiagram
 | `board_page` | `items[{id,name,line,at,status}], page, pages, total` | 📮 한 쪽 (5개, 최신 먼저) | v3, `status`: `none`·`done`·`rejected` |
 | `stats_ok` | `day` | 📊 그날 보고를 끝냄 (셌거나, 다시 보내도 소용없음 — 앱은 다시 안 보냄). 주소·하루 한도면 답 없음 → 앱이 다음 연결에 다시 | v4 |
 | `stats_days` | `days[{day, reports, kept{}, chosen{}, changed[], versions{}}], more` | 📊 날짜별 합계 한 쪽 (최신 날 먼저, JSON ≤ 24 KiB, 모두 90일) | v4, 독자만 |
-| `letter_img` | `id, img` (hex, `""` = 없음) | 🖼️ 편지 사진 (봉인된 채) | v5, 독자만. 앱의 WS 받기 한도도 `MAX_LETTER_TEXT`까지 (친구 프레임은 여전히 65535) |
+| `letter_go` | – | 🖼️ 이제 큰 `letter` 하나를 보내도 됨 | v5 |
+| `letter_img` | `id, img` (hex, `""` = 없음·너무 잦은 요청) | 🖼️ 편지 사진 (봉인된 채) | v5, 독자만. 앱의 WS 받기 한도도 `MAX_LETTER_TEXT`까지 (친구 프레임은 여전히 65535) |
 
-`letters`·`letter_new`의 편지(`Letter`)에는 v5부터 `img`(봉인 사진 바이트 수, 0이면 안 씀)가 붙음. 사진 자체는 목록에 없음 (목록 메시지가 64 KiB 안에 남게). 옛 앱은 모르는 칸을 무시함.
+`letters`·`letter_new`의 편지(`Letter`)에는 v5부터 `img`(봉인 사진 바이트 수, 0이면 안 씀)가 붙음. 사진 자체는 목록에 없음 (목록 메시지가 64 KiB 안에 남게). 옛 앱은 모르는 칸을 무시함. 앱은 기다리는 사진 요청을 끊길 때·10초 시간 초과 때 "없음"으로 끝냄 (창도 10초 뒤 "볼 수 없어요", 눌러서 다시).
 
 `error.reason` 값 (`conn.rs`, `hub/presence.rs` `join`, `hub/mod.rs`): `auth`, `timeout`, `idle`, `rate`, `too_large`, `bad_message`, `bad_frame`, `unexpected`, `slow`, `busy`, `banned`, `registration_closed`, `full`, `replaced`, `relay_off`, `shutdown`.
 

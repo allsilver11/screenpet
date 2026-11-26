@@ -141,11 +141,13 @@ def test_the_developer_list_pages_by_five_and_stays_on_its_page():
     assert (out["none"]["empty"], out["none"]["pager"]) == ("아직 건의가 없어요", None)
     # 🖼️ 사진 붙은 편지: 보일 때 한 번만 청하고, 맞는 사진만 Blob URL로 보이고, 누르면 크게
     ph = out["photo"]
+    assert ph["timeoutMs"] == [10000] and ph["timedOut"] == "🖼️ 사진을 볼 수 없어요", "no answer in 10 s: stop waiting (tap to retry)"
     assert ph["asked"] == [["mailbox_photo", {"id": 3}]], "asked once, only for the letter with a photo"
     assert ph["loading"] == ["🖼️ 사진 불러오는 중…"]
     assert ph["shown"] == ["blob:test/1"] and ph["bigShown"] and not ph["bigAfterClose"]
     assert ph["bad"] == "🖼️ 사진을 볼 수 없어요" and ph["badImgs"] == 0, "a PNG (or anything but WebP/JPEG) is not shown"
     assert ph["revoked"] == ["blob:test/1"], "the letter went away: its URL is let go"
+    assert ph["bomb"] == "🖼️ 사진을 볼 수 없어요", "a tiny file that unpacks huge is not decoded"
 
 
 @needs_node

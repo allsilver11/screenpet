@@ -172,8 +172,7 @@ fn a_letter_reaches_the_real_relay_and_a_brand_new_install_is_told_to_wait() {
     code_of(&arx); // 연결됨
     let dev = screenpet_net::letter::dev_key().unwrap();
     // 🖼️ 가장 큰 사진을 붙여도 릴레이까지 가서 답을 받음 (연결이 끊기지 않음)
-    let mut photo = b"RIFF\0\0\0\0WEBP".to_vec();
-    photo.resize(screenpet_net::letter::MAX_IMAGE, 7);
+    let photo = screenpet_net::letter::sample_webp(640, 360, screenpet_net::letter::MAX_IMAGE);
     let sealed = screenpet_net::letter::seal_letter(&screenpet_net::letter::Letter { text: "안녕하세요".into(), ..Default::default() }, Some(&photo), &dev).unwrap();
     assert!(a.send_letter(&sealed));
     match wait_for(&arx, 5.0, |e| matches!(e, NetEvent::LetterSent { .. })) {

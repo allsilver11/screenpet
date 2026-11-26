@@ -63,13 +63,13 @@ pub fn seal_with(letter: &Letter, photo: Option<&[u8]>) -> Option<letter::Sealed
     letter::seal_letter(letter, photo, &letter::dev_key()?)
 }
 
-/// 🖼️ 창이 보낸 base64 사진을 다시 확인함: 엄격한 base64, `MAX_IMAGE` 이하, WebP/JPEG 머리. 아니면 None
+/// 🖼️ 창이 보낸 base64 사진을 다시 확인함: 엄격한 base64, `MAX_IMAGE` 이하, WebP/JPEG 머리와 그림 크기(`photo_ok`). 아니면 None
 pub fn decode_photo(b64: &str) -> Option<Vec<u8>> {
     if b64.len() > letter::MAX_IMAGE.div_ceil(3) * 4 {
         return None;
     }
     let bytes = screenpet_core::icon::from_base64(b64)?;
-    (!bytes.is_empty() && bytes.len() <= letter::MAX_IMAGE && letter::photo_kind(&bytes).is_some()).then_some(bytes)
+    (!bytes.is_empty() && bytes.len() <= letter::MAX_IMAGE && letter::photo_ok(&bytes)).then_some(bytes)
 }
 
 /// 결과를 창에 알림 (`photo_dropped` = 옛 서버라 글만 갔음)
@@ -120,8 +120,7 @@ mod tests {
 
     #[test]
     fn a_photo_from_the_window_is_checked_again() {
-        let mut webp = b"RIFF\0\0\0\0WEBP".to_vec();
-        webp.resize(1000, 5);
+        let webp = letter::sample_webp(640, 360, 1000);
         let b64 = screenpet_core::icon::base64(&webp);
         assert_eq!(decode_photo(&b64), Some(webp.clone()));
         let mut big = webp.clone();
@@ -129,6 +128,8 @@ mod tests {
         assert_eq!(decode_photo(&screenpet_core::icon::base64(&big)), None, "too big");
         assert_eq!(decode_photo(&screenpet_core::icon::base64(b"<svg onload=alert(1)>")), None, "not WebP/JPEG");
         assert_eq!(decode_photo("not base64!"), None);
+        let bomb = letter::sample_webp(16000, 16000, 1000);
+        assert_eq!(decode_photo(&screenpet_core::icon::base64(&bomb)), None, "a small file that unpacks huge");
         assert_eq!(decode_photo(&"A".repeat(4 * letter::MAX_IMAGE)), None, "a huge string is not even decoded");
         let l = Letter { text: "사진이에요".into(), ..Default::default() };
         let sealed = seal_with(&l, Some(&webp)).unwrap();

@@ -68,7 +68,8 @@
   - 편지 목록·표시·삭제·차단은 릴레이 `control.json`의 `mailbox_readers`에 있는 설치 키만 (`admin mailbox-reader add|remove`). 아니면 조용히 무시.
 - 🖼️ 사진 한 장 (v5 릴레이):
   - 앱 창(`ui/photo.js`)이 canvas로 다시 인코딩함: 긴 변 ≤ 640px, WebP(못 쓰면 JPEG) 품질 0.8부터 0.5까지, 안 들면 크기를 0.75배씩 — 결과 ≤ 120 KiB(`MAX_IMAGE`), 아니면 거절. 다시 인코딩하므로 EXIF·위치 같은 메타데이터가 없음. 원본은 20 MiB·4천만 픽셀까지만 읽음.
-  - 백엔드(`src-tauri/src/feedback.rs` `decode_photo`)가 다시 봄: 엄격한 base64, ≤ `MAX_IMAGE`, WebP/JPEG 머리 바이트.
+  - 백엔드(`src-tauri/src/feedback.rs` `decode_photo`)가 다시 봄: 엄격한 base64, ≤ `MAX_IMAGE`, WebP/JPEG 머리 바이트, **그림 크기** (`letter::photo_ok`).
+  - 압축 폭탄 막기: 작은 무손실 WebP도 16383²으로 풀릴 수 있으므로 풀기 전에 머리(VP8·VP8L·VP8X, JPEG SOFn)에서 가로·세로를 읽어 한 변 ≤ 2048, ≤ 4 MP만 받음. 보내는 앱(`seal_letter`), 개발자 앱(`open_photo` — 고친 앱이 봉해 보낸 것), 개발자 창(`ui/photo.js` `photoOk`) 세 곳에서.
   - 봉인: 편지 봉투(Noise_N 핸드셰이크, 사진 크기 `img`를 말함) 뒤 **같은 세션의 전송 메시지**로 60 000바이트씩 이어 봉인 (`letter::seal_letter`). 사진은 그 편지에만 열리고, 바꾸거나 자르거나 순서를 바꾸거나 다른 편지 사진을 붙이면 `open_photo`가 None. 사진 없는 봉투는 옛 모양 그대로 (옛 앱·옛 편지 호환).
   - 릴레이: 봉인 사진 ≤ `MAX_IMG_SEALED`(120 KiB + 256)만, `letter-photos/<id>.bin`(0600)에 따로 — `letters.json`은 작게 남음. 편지 지우기·차단·시작 때 남은 사진 파일 정리. 편지 한도가 그대로 사진 한도 (키당 하루 5, 전체 하루 50, 편지함 200통 → 사진은 최대 약 24 MiB). 독자만 `letter_img`로 받음 (새 인증 없는 길 없음). 사진 바이트는 어디에도 적지 않음 (크기만).
   - 개발자 창(`ui/mailbox.js`): 백엔드가 비밀키로 연 사진만, 다시 머리 바이트가 `kind`(webp/jpeg)와 맞고 ≤ 120 KiB일 때 Blob URL로. 📮 공개 건의함에는 사진이 없음.
@@ -136,7 +137,7 @@
 | 메시지 폭주 | 연결당 200 msg/s·512 KiB/s, 채널 방향당 20 프레임/s, `friends` 0.5/s(burst 30), `weather_want` 0.1/s(burst 5) | `conn.rs:24-37`, `:203`, `:284` |
 | 대역폭 | 주소 2 MiB/s(재연결해도 안 참), 전체 16 MiB/s(네트워크 몫 1/16), 천장 32 MiB/s | `hub/routing.rs:6`, `:102` `bandwidth_allows` |
 | 느린 수신자 | 연결 큐 2 MiB 넘으면 채널 닫음, 5초 안 움직이면 `slow`. 전체 큐 256 MiB | `hub/routing.rs:120` `enqueue_frame` |
-| 크기 | 텍스트 16 KiB (🖼️ 인증한 연결의 `letter`만 `MAX_LETTER_TEXT` ≈ 258 KiB까지 — 인증 전·다른 메시지는 `too_large`), 프레임 4 + 65535, 요청 머리 8 KiB·5 s | `conn.rs` `Message::Text`, `http.rs` `ws_config`, `:113` |
+| 크기 | 텍스트 16 KiB, 소켓 한도 4 + 65535 (인증 전에도). 🖼️ `letter_begin`으로 자리를 받은 인증 연결만 그 연결의 소켓 한도가 `MAX_LETTER_TEXT` ≈ 258 KiB로 커지고 큰 `letter` 하나만 받음 (편지 하나나 30초 뒤 다시 64 KiB). 자리는 릴레이 전체 32개 → 큰 버퍼는 최대 ≈ 8 MiB, 없으면 `photo_busy`. 프레임 4 + 65535, 요청 머리 8 KiB·5 s | `conn.rs` `Message::Text`, `http.rs` `ws_config`, `:113` |
 | 편지 | 연결당 분당 3, 키당 하루 **5**, 주소당 10, 전체 50, 2일 이상 본 키만, 200통에서 거절(옛 편지는 안 버림), 차단 키 거절 | `conn.rs:26`, `mailbox.rs:14-28`, `:156` `submit` |
 | 건의함 조회 | 0.5초 간격 | `Limits::board_gap` |
 | 다운로드 | 이름 허용 목록, 심볼릭 링크 거절, 동시 8·주소당 2, 30분·64 KiB/s·10초 정지 컷 | `downloads.rs:35`, `:127`, `:144` |

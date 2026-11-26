@@ -90,13 +90,17 @@ impl Hub {
         Some(reply)
     }
 
-    /// 🖼️ 편지 `id`의 봉인 사진을 hex로 줌 (독자만, 아니면 None. 없으면 빈 글자). `letter_img`(id·크기)를 적음
-    pub(crate) fn letter_img(&self, key: &str, conn: u64, id: u64) -> Option<ServerMsg> {
+    /// 🖼️ 편지 `id`의 봉인 사진을 hex로 줌 (독자만, 아니면 None. 없으면 빈 글자). `letter_img`(id·크기)를 적음.
+    /// `allowed`가 아니면(연결이 너무 자주 청함) 빈 사진으로 답함 — 창이 기다리다 멈추지 않게
+    pub(crate) fn letter_img(&self, key: &str, conn: u64, id: u64, allowed: bool) -> Option<ServerMsg> {
         {
             let st = self.state();
             if !Self::is_current(&st, key, conn) || !Self::is_reader(&st, key) {
                 return None;
             }
+        }
+        if !allowed {
+            return Some(ServerMsg::LetterImg { id, img: String::new() });
         }
         let photo = self.mail().photo(id).unwrap_or_default();
         log!(Info, "mail", "letter_img", "conn" => Cid(conn), "peer" => short(key), "id" => id, "bytes" => photo.len());

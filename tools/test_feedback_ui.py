@@ -99,7 +99,7 @@ def test_a_photo_is_attached_by_button_or_paste_with_a_thumbnail_and_a_remove_bu
 def test_the_photo_goes_as_base64_and_the_backend_checks_it_again():
     assert 'invoke("feedback_submit", { text: inputEl.value, photo' in JS
     assert "photo: Option<String>" in RS and "icon::from_base64" in RS
-    assert "letter::photo_kind" in RS and "letter::MAX_IMAGE" in RS
+    assert "letter::photo_ok" in RS and "letter::MAX_IMAGE" in RS, "size and pixel dimensions (no decompression bombs)"
     assert "letter::seal_letter" in RS
     assert "NetInput::SendFeedback(text, photo)" in RS
     assert "photo_dropped" in RS and "photo_dropped" in NETWORK
@@ -118,9 +118,9 @@ def test_sent_and_photo_answers_read_as_planned():
     end = JS.index("\n}\n", start) + 3
     start2 = JS.index("function sentText")
     end2 = JS.index("\n}\n", start2) + 3
-    script = JS[start:end] + JS[start2:end2] + 'console.log(JSON.stringify([reasonText("photo"), sentText(false), sentText(true)]));'
+    script = JS[start:end] + JS[start2:end2] + 'console.log(JSON.stringify([reasonText("photo_busy"), reasonText("photo"), sentText(false), sentText(true)]));'
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout
-    assert json.loads(out) == ["사진을 붙일 수 없어요 — 다른 사진을 골라 주세요", "보냈어요 💌 고마워요!", "보냈어요 💌 (서버가 아직 사진을 못 받아서 글만 갔어요)"]
+    assert json.loads(out) == ["지금 사진 편지가 몰려요 — 잠시 뒤 다시 보내 주세요", "사진을 붙일 수 없어요 — 다른 사진을 골라 주세요", "보냈어요 💌 고마워요!", "보냈어요 💌 (서버가 아직 사진을 못 받아서 글만 갔어요)"]
 
 
 @needs_node
@@ -142,3 +142,17 @@ def test_photos_shrink_to_a_small_screenshot_or_are_refused():
     assert out["never"] is None, "too big even at the smallest: refused"
     assert out["kinds"] == ["image/webp", "image/jpeg", None, None, None]
     assert out["b64"] == [0, 1, 2, 250, 255, 7], "base64 round trip"
+    assert out["sizes"] == [[640, 360], [16383, 16384], [4096, 4096], [800, 600], None], "VP8, VP8L, VP8X, JPEG SOF0, cut"
+    assert out["ok"] == [True, False, False, True], "≤ 2048 a side and ≤ 4 MP (no decompression bombs)"
+
+
+@needs_node
+def test_no_sending_while_a_photo_is_still_shrinking():
+    from conftest import node_json
+
+    out = node_json(Path(__file__).parent / "feedback_harness.js")
+    assert out["whileShrinking"] == {"disabled": True, "note": "사진을 줄이는 중…"}
+    assert out["sentWhileShrinking"] == 0, "neither the button nor Ctrl+Enter sends the text alone"
+    assert out["afterShrink"] == {"disabled": False, "note": "사진 640×360 · 3 KB", "thumb": "block"}, "the last pasted photo wins"
+    assert out["sent"] == [{"text": "사진 보낼게요", "photo": "b64:3000"}]
+    assert out["pastedWhileSending"] == 2, "no new shrinking while a letter is on its way"

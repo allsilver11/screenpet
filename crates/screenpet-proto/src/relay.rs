@@ -26,7 +26,9 @@
 //! client -> relay   letter {box: hex}          -> letter_ok | letter_refused {reason}
 //!                   (a feedback letter sealed to the developer key; reasons:
 //!                   daily, ip, new, global, full, size, blocked)
-//!                   (v5: + img: hex sealed photo, ≤ MAX_IMG_SEALED; the whole text ≤ MAX_LETTER_TEXT)
+//!                   (v5: + img: hex sealed photo, ≤ MAX_IMG_SEALED; the whole text ≤ MAX_LETTER_TEXT —
+//!                   only after letter_begin -> letter_go, which raises this connection's 64 KiB socket limit
+//!                   for one letter; few slots relay-wide, else letter_refused {reason: photo_busy})
 //! client -> relay   letters                    -> letters {items, board}  (mailbox readers only)
 //!                   (v5: items with a photo carry img = its sealed size; the photo itself is not in the list)
 //! client -> relay   letter_img {id}            (v5, readers only) -> letter_img {id, img: hex} ("" = none)
@@ -92,6 +94,8 @@ pub enum ClientMsg {
         img: String,
     },
     Letters,
+    /// 🖼️ v5 릴레이에만 보냄: 사진 편지 하나 보낼 자리를 청함 (`letter_go` 뒤 큰 `letter` 하나)
+    LetterBegin,
     /// 🖼️ v5 릴레이에만 보냄 (편지함 독자만 답받음): 편지 `id`의 봉인 사진을 줘
     LetterImg {
         id: u64,
@@ -235,7 +239,9 @@ pub enum ServerMsg {
         item: Letter,
     },
     LettersChanged,
-    /// 🖼️ 편지 `id`의 봉인 사진, hex (독자에게만. 없거나 지워졌으면 빈 글자)
+    /// 🖼️ `letter_begin`의 답: 이제 이 연결에서 큰 `letter` 하나를 받음 (잠시 안에)
+    LetterGo,
+    /// 🖼️ 편지 `id`의 봉인 사진, hex (독자에게만. 없거나 지워졌거나 너무 잦은 요청이면 빈 글자)
     LetterImg {
         id: u64,
         #[serde(default)]

@@ -11,6 +11,8 @@ const listEl = document.getElementById("list");
 const emptyEl = document.getElementById("empty");
 let letters = [];
 let page = 1;
+// 🖼️ 사진 답을 기다리는 시간 (ms)
+const PHOTO_WAIT_MS = 10000;
 // 🖼️ 편지 id → {state: "loading" | "ok" | "bad", url}
 const photos = new Map();
 const viewerEl = document.getElementById("viewer");
@@ -65,9 +67,16 @@ function photoEl(l) {
   const wrap = el("div", "photo");
   let p = photos.get(l.id);
   if (!p) {
-    p = { state: "loading" };
-    photos.set(l.id, p);
+    const asked = { state: "loading" };
+    p = asked;
+    photos.set(l.id, asked);
     invoke("mailbox_photo", { id: l.id });
+    // 답이 안 오면 (끊김 등) 10초 뒤 그만 기다림 — 눌러서 다시
+    setTimeout(() => {
+      if (photos.get(l.id) !== asked) return;
+      photos.set(l.id, { state: "bad" });
+      render();
+    }, PHOTO_WAIT_MS);
   }
   if (p.state === "ok") {
     const img = el("img", "thumb");
@@ -91,12 +100,12 @@ function photoEl(l) {
   return wrap;
 }
 
-// 🖼️ 백엔드가 연 사진: 청한 편지의 것만, WebP/JPEG 머리 바이트가 kind와 맞고 한도 안일 때만 보임
+// 🖼️ 백엔드가 연 사진: 청한 편지의 것만, WebP/JPEG 머리 바이트가 kind와 맞고 바이트·그림 크기(풀기 전 머리로) 한도 안일 때만 보임
 function onPhoto(p) {
   if (!p || !photos.has(p.id)) return;
   const known = p.kind === "image/webp" || p.kind === "image/jpeg";
   const bytes = known && typeof p.data === "string" ? base64ToBytes(p.data) : null;
-  if (!bytes || bytes.length > PHOTO_MAX_BYTES || photoKind(bytes) !== p.kind) {
+  if (!bytes || bytes.length > PHOTO_MAX_BYTES || photoKind(bytes) !== p.kind || !photoOk(bytes)) {
     photos.set(p.id, { state: "bad" });
   } else {
     photos.set(p.id, { state: "ok", url: URL.createObjectURL(new Blob([bytes], { type: p.kind })) });
