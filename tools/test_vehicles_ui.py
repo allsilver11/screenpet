@@ -50,3 +50,16 @@ def test_pets_say_short_english_lines_and_hide_legs_behind_the_door():
 def test_help_explains_vehicles():
     help_html = (UI / "help.html").read_text(encoding="utf-8")
     assert "🚗 탈것 꺼내기" in help_html and "🛻" in help_html and "🚁" in help_html
+
+
+def test_riders_tilt_with_the_vehicle_around_the_same_ground_point():
+    # 탈것 그림은 바퀴 바닥 가운데 (창 아래 UNDER × 0.7 px 위)를 축으로 기울고 — 코어 Vehicle::seat_point도 그 점을 축으로 돌림
+    under = d.UNDER * 0.7
+    assert f"transform-origin: 50% calc(100% - {under:g}px);" in HTML
+    assert f"pub const VEHICLE_SCALE: f64 = 0.7;" in (ROOT / "crates" / "screenpet-core" / "src" / "vehicle.rs").read_text(encoding="utf-8")
+    # 펫 웹뷰는 render.lean (= 탈것 tilt × dir) 만큼 발밑 (그림 아래 가운데 = 좌석 자리)을 축으로 같이 돌림 — 반전보다 바깥 (화면 기준)
+    assert "render.lean" in MAIN
+    m = re.search(r"const lean = ([^;]+);", MAIN)
+    assert m and "render.lean" in m.group(1)
+    assert re.search(r"lean \? \"50% 100%\"", MAIN)
+    assert re.search(r"parts\.unshift\(`rotate\(\$\{lean", MAIN)

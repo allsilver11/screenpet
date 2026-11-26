@@ -1,6 +1,6 @@
 // 🚗 탈것 창: 시트 한 장 (ui/vehicles/<종류>.png — 가로 FRAMES칸, tools/draw_vehicles.py)에서 칸을 골라 그림.
 // 앱이 `vehicle-pose` {dir, moving, rotor, tilt, dust, bump}를 보냄: 달리면 바퀴 칸을, 시동이 걸렸으면 프로펠러 칸을 넘기고,
-// 왼쪽을 보면 뒤집고, 날며 앞으로 숙임. `vehicle-fx` {kind: "screech"|"crash"}면 먼지·💥.
+// 왼쪽을 보면 뒤집고, 날며 앞으로 숙임 (바퀴 바닥 가운데 축 — 탄 펫도 render.lean으로 같이 기욺). `vehicle-fx` {kind: "screech"|"crash"}면 먼지·💥.
 // 누르면 vehicle_down (잡아 끌기 — 탄 펫은 튕겨 내림), 우클릭이면 vehicle_menu.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();

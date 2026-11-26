@@ -21,7 +21,8 @@
         inset: 0;
         background-repeat: no-repeat;
         background-size: 300% 100%;
-        transform-origin: 50% 96%;
+        /* 기울기·출렁 축: 바퀴 바닥 가운데 (창 아래 4 × 0.7 px 위 — 코어 Vehicle::seat_point가 탄 펫을 같은 축으로 돌림) */
+        transform-origin: 50% calc(100% - 2.8px);
         cursor: grab;
       }
 

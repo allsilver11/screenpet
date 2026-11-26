@@ -33,6 +33,10 @@ NAMES = ("car", "heli", "scooter", "truck")
 SIZE = {"car": (176, 100), "heli": (208, 150), "scooter": (104, 118), "truck": (236, 104)}
 # 좌석 (논리 px, 가운데 바닥 기준: 가로 자리, 문 윗선 높이, 발 가장 낮은 높이) — vehicle.rs Spec seat_x·cover·seat_min
 SEAT = {"car": (-14, 56, 22), "heli": (20, 50, 22), "scooter": (-8, 0, 15), "truck": (58, 58, 24)}
+# 운전대·손잡이 가로 자리 (논리 px — 운전석 펫 앞 끝이 여기 닿음, 작은 펫은 앞으로 당겨 앉음) — vehicle.rs Spec wheel_x
+WHEEL = {"car": 8, "heli": 0, "scooter": 30, "truck": 70}
+# 그 x에서 운전대·손잡이가 그려진 높이 (논리 px: 아래, 위 — 시험용)
+STEER_Y = {"car": (62, 72), "scooter": (104, 108), "truck": (62, 72)}
 # 🛻 짐칸 좌석 가로 자리와 벽 윗선 — vehicle.rs Spec bed_x·bed_cover
 BED = {"truck": ((-30, -88), 44)}
 # 창 여유 (논리 px) — vehicle.rs WINDOW_PAD
@@ -47,6 +51,8 @@ OUT = 2
 HIRES_K = 8
 # 펫 다리가 가려지는 몫 — vehicle.rs LEG_SHARE
 LEG_SHARE = 0.32
+# 운전석 펫 앞 끝이 몸 가운데에서 나온 몫 — vehicle.rs DRIVER_REACH
+DRIVER_REACH = 0.22
 
 TIRE = (78, 72, 82)
 HUB = (226, 224, 230)
@@ -306,7 +312,8 @@ def seated(name, art, pet_size=128):
     out = Image.new("RGBA", (ww, wh + pet_size), (0, 0, 0, 0))
     ground = wh + pet_size - UNDER
     _, anims = pet_frame(0)
-    seats = [(SEAT[name], anims["idle"]["row"])]
+    sx0, cover0, low0 = SEAT[name]
+    seats = [((max(sx0, WHEEL[name] - DRIVER_REACH * pet_size), cover0, low0), anims["idle"]["row"])]
     if name in BED:
         xs, cover = BED[name]
         seats += [((x, cover, SEAT[name][2] - 2), anims["sit_front"]["row"]) for x in xs]
@@ -314,7 +321,7 @@ def seated(name, art, pet_size=128):
     for (sx, cover, low), row in seats:
         pet, _ = pet_frame(row)
         pet = pet.resize((pet_size, pet_size), Image.LANCZOS)
-        feet = low if cover <= 0 else min(cover, max(low, cover - LEG_SHARE * pet_size))
+        feet = low if cover <= 0 else min(cover, max(0, cover - LEG_SHARE * pet_size))
         hidden = 0 if cover <= 0 else cover - feet
         if hidden > 0:
             keep = pet_size - round(hidden)

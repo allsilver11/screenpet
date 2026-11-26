@@ -424,7 +424,10 @@ function draw(now) {
     const tuck = Math.max(0, Math.min(1, render.tuck || 0));
     // 🪨 Petrificus에 맞아 통나무처럼 쿵 (백엔드 render.topple 도 — 코어 brain_duel.rs): 그림 가운데를 축으로 돌리고 바닥 쪽으로 내림
     const topple = Math.max(-90, Math.min(90, render.topple || 0));
-    writePet("transformOrigin", swingGrip ? gripOrigin(swingGrip) : render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : tuck > 0 ? "50% 100%" : topple ? "50% 50%" : "");
+    // 🚁 탈것과 같이 기욺 (백엔드 render.lean 도, 시계 방향 + — 코어 vehicle.rs Vehicle::lean): 발밑 = 좌석 자리를 축으로.
+    // 문에 가려 자른 아래 (syncSeat)도 같이 돌아 기운 문 윗선에 맞음
+    const lean = Number.isFinite(render.lean) ? render.lean : 0;
+    writePet("transformOrigin", swingGrip ? gripOrigin(swingGrip) : render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : tuck > 0 ? "50% 100%" : topple ? "50% 50%" : lean ? "50% 100%" : "");
     writePet("opacity", tuck > 0 ? (1 - tuck).toFixed(3) : "");
     if (tuck > 0) parts.push(`scale(${(1 - 0.9 * tuck).toFixed(3)})`);
     // 🧳 포트키로 빙글 (백엔드 render.twirl 도 — 코어 brain_portkey.rs): 팽이처럼 좌우로 돌며 (tuck과 함께 작아지고 흐려짐)
@@ -443,6 +446,8 @@ function draw(now) {
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
+    // 기울기는 반전보다 바깥 (화면 기준 — 탈것 창과 같은 방향으로 돎)
+    if (lean) parts.unshift(`rotate(${lean.toFixed(2)}deg)`);
     writePet("transform", parts.length ? parts.join(" ") : "none");
   }
   requestAnimationFrame(draw);

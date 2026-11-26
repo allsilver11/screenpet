@@ -121,7 +121,8 @@ fn a_free_pet_walks_to_a_nearby_vehicle_and_drives_off() {
     let v = g.get(id).unwrap();
     assert!((v.x() - x0).abs() > 50.0, "drove {} → {}", x0, v.x());
     assert!((pets[0].body.x - v.seat_point(0, pets[0].cfg.size).0).abs() < 1.0);
-    assert!(pets[0].body.y < v.y());
+    // 다리는 문 아래로 앉아 들어감 (큰 펫은 발이 바퀴 바닥까지 — 바닥 아래로는 안 감)
+    assert!(pets[0].body.y <= v.y());
     assert!(v.pose().moving);
 }
 
@@ -243,6 +244,29 @@ fn a_helicopter_takes_off_flies_and_lands_again() {
     assert_eq!(v.y(), 1040.0);
     assert!(v.is_parked());
     assert_eq!(pets[0].riding(), None);
+}
+
+/// 🚁 날며 기운 헬리콥터의 펫도 같은 각도로 기울고, 발은 기운 조종석 자리 (탈것과 같은 축으로 돈 자리)에 있음
+#[test]
+fn a_rider_tilts_with_the_flying_helicopter() {
+    let w = world(vec![]);
+    let (mut g, id) = garage_with(VehicleKind::Heli, 900.0, &w);
+    let mut pets = vec![resting_pet(900.0, 3, &w)];
+    assert!(g.board(id, &mut pets[0]));
+    let mut seen = false;
+    for _ in 0..600 {
+        run_all(&mut g, &mut pets, &w, 1);
+        let v = g.get(id).unwrap();
+        let tilt = v.pose().tilt;
+        let r = pets[0].render();
+        assert!((r.lean - tilt * v.dir()).abs() < 1e-9, "pet {} vs heli {}", r.lean, tilt * v.dir());
+        let (sx, sy) = v.seat_point(0, pets[0].cfg.size);
+        assert!((pets[0].body.x - sx).abs() < 1e-9 && (pets[0].body.y - sy).abs() < 1e-9);
+        seen |= tilt > 5.0;
+    }
+    assert!(seen, "flew tilted");
+    pets[0].leave_vehicle(1.0);
+    assert_eq!(pets[0].render().lean, 0.0);
 }
 
 #[test]

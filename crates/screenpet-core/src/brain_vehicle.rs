@@ -4,7 +4,8 @@
 //!   BOARD_CHANCE로 걸어감 (State::ToVehicle). 다 오면 `boarding`이 Some — 차고가 태우거나 (`take_seat`) 그만두게 함 (`cancel_boarding`)
 //! - 🛻 트럭 운전 펫이 부르면 (`invite_ride`) 주사위 없이 짐칸으로 걸어감
 //! - 타는 동안 (State::Ride): 차고가 틱마다 좌석 자리로 옮김 (`seat_at`). 그림은 운전석은 옆모습 idle, 짐칸은 앞모습 sit_front —
-//!   문·짐칸 벽 아래로 가려지는 다리 몫은 render.seat (웹뷰가 그림 아래를 자름). 한동안 안 옮겨 주면 떨어짐
+//!   문·짐칸 벽 아래로 가려지는 다리 몫은 render.seat (웹뷰가 그림 아래를 자름), 탈것과 같이 기운 각도는 render.lean.
+//!   한동안 안 옮겨 주면 떨어짐
 //! - 내림 (`leave_vehicle`) 은 폴짝, 쿵·잡힘 (`fling_off`) 은 휙 튕겨 나감. 걷다 마주친 펫은 `startle` (폴짝 "whoa!"), 쿵 맞으면 `bonk`
 //! - 내 펫이 친구가 연결된 끝까지 몰고 가면 (`may_drive_out`) 탈것째 사라짐 (`drove_out` → take_exit)
 //! - 사용자가 펫을 탈것 위에 떨구면 차고의 offer_drop이 `just_dropped`를 보고 태움
@@ -44,6 +45,8 @@ pub struct VehicleMood {
     /// 좌석: 가려지는 높이 (물리 px), 앞모습
     cover: f64,
     front: bool,
+    /// 탈것과 같이 기운 각도 (도 — 🚁 날며 숙임, 급정거)
+    lean: f64,
     /// 마지막으로 좌석에 옮겨 준 시각
     seated_at: f64,
     /// 급정거에 쏠리는 중
@@ -59,7 +62,7 @@ pub struct VehicleMood {
 impl VehicleMood {
     /// 시드로 난수를 따로 둠
     pub(super) fn new(seed: u64) -> Self {
-        VehicleMood { rng: fastrand::Rng::with_seed(seed ^ 0x6361_7273), calm_until: 0.0, seen: Vec::new(), target_x: 0.0, arrived: false, invited: false, cover: 0.0, front: false, seated_at: 0.0, lurch: false, honk: false, rehop_at: 0.0, eager: false }
+        VehicleMood { rng: fastrand::Rng::with_seed(seed ^ 0x6361_7273), calm_until: 0.0, seen: Vec::new(), target_x: 0.0, arrived: false, invited: false, cover: 0.0, lean: 0.0, front: false, seated_at: 0.0, lurch: false, honk: false, rehop_at: 0.0, eager: false }
     }
 }
 
@@ -196,8 +199,8 @@ impl Pet {
         true
     }
 
-    /// 좌석 자리 (물리 px: 발) 로 옮김 — 차고가 매 틱. lurch = 급정거에 쏠리는 중
-    pub fn seat_at(&mut self, x: f64, y: f64, facing: f64, cover: f64, lurch: bool) {
+    /// 좌석 자리 (물리 px: 발) 로 옮김 — 차고가 매 틱. lurch = 급정거에 쏠리는 중, lean = 탈것과 같이 기운 각도 (도)
+    pub fn seat_at(&mut self, x: f64, y: f64, facing: f64, cover: f64, lurch: bool, lean: f64) {
         if !matches!(self.state, State::Ride { .. }) {
             return;
         }
@@ -206,6 +209,7 @@ impl Pet {
         self.facing = facing;
         self.vehicle.cover = cover;
         self.vehicle.lurch = lurch;
+        self.vehicle.lean = lean;
         self.vehicle.seated_at = self.clock;
     }
 
@@ -422,6 +426,15 @@ impl Pet {
             State::ToVehicle { .. } => Anim::Run,
             _ if self.vehicle.front => Anim::SitFront,
             _ => Anim::Idle,
+        }
+    }
+
+    /// 탈것과 같이 기운 각도 (도, 시계 방향 + — render.lean: 웹뷰가 발밑을 축으로 돌림). 안 타면 0
+    pub(super) fn seat_lean(&self) -> f64 {
+        if matches!(self.state, State::Ride { .. }) {
+            self.vehicle.lean
+        } else {
+            0.0
         }
     }
 

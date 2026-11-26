@@ -20,6 +20,9 @@
 //!   (타기 시간이 줄지 않음), ↑ 빵빵, 🚁 방향키로 상하좌우·↓로 내려앉음. 창 끝은 그대로 몰고 떨어지고, 막힌 끝은 그냥 멈추고,
 //!   친구가 연결된 끝은 늘 나감. 앞의 펫은 급정거 없이 쿵 밀어냄. 점프해 빈 탈것에 내려앉으면 태움 (Pet::may_hop_in)
 //!
+//! - 좌석: 운전석 펫은 앞 끝이 운전대 (wheel_x)에 닿게 앉고, 문·벽 아래로 다리 몫 (LEG_SHARE)이 들어감 (큰 펫도 선 듯 뜨지 않음).
+//!   기운 탈것 (🚁 날며 숙임·급정거)은 웹뷰처럼 바퀴 바닥 가운데를 축으로 좌석 자리를 돌리고, 펫도 같은 각도 (lean)로 기욺
+//!
 //! 자리는 모두 물리 px, 탈것 크기는 논리 px × dpi. x = 탈것 가운데, y = 바퀴 바닥 (화면 아래로 +).
 
 use std::collections::VecDeque;
@@ -67,8 +70,12 @@ pub const EDGE_DROP_CHANCE: f64 = 0.35;
 pub const VISIT_CHANCE: f64 = 0.35;
 /// 아무도 안 타는 남의 탈것이 사라지기까지 (초)
 pub const FOREIGN_LIFE_SECS: f64 = 300.0;
-/// 좌석에 앉은 펫 그림 중 문(덮개)에 가려지는 아래 몫 (다리)
+/// 좌석에 앉은 펫 그림 중 문(덮개)에 가려지는 아래 몫 (다리) — 큰 펫도 이만큼 앉아 들어감 (발은 바퀴 바닥까지)
 pub const LEG_SHARE: f64 = 0.32;
+/// 운전석 펫 앞 끝 (손·코)이 몸 가운데에서 앞으로 나온 몫 (펫 크기 배 — 옆모습 idle 그림의 앞 끝 ≈ 0.72칸)
+pub const DRIVER_REACH: f64 = 0.22;
+/// 그림의 바퀴 바닥 아래 그림자 자리 (그림 px — draw_vehicles.py UNDER). 화면에선 VEHICLE_SCALE배
+const GROUND_PAD: f64 = 4.0;
 /// 창 가장자리 여유 (논리 px — 먼지·출렁임이 잘리지 않게, 옆·위)
 pub const WINDOW_PAD: f64 = 24.0;
 /// 화면 크기 배율: 그림 숫자 (art) × 이것 — 제일 큰 단계 (어른) 펫에 딱 맞게 (자동차 ≈ 어른 펫 한 마리 길이)
@@ -129,8 +136,10 @@ pub struct Spec {
     pub w: f64,
     /// 그림 높이
     pub h: f64,
-    /// 운전석 가로 자리
+    /// 운전석 가로 자리 (큰 펫 — 작은 펫은 wheel_x 쪽으로 당겨 앉음)
     pub seat_x: f64,
+    /// 운전대·손잡이 가로 자리 (운전석 펫 앞 끝이 여기 닿음 — 🚁는 없어 0)
+    pub wheel_x: f64,
     /// 운전석 문 윗선 높이 (펫 다리가 이 아래로 가려짐 — 0이면 안 가림)
     pub cover: f64,
     /// 운전석 펫 발의 가장 낮은 높이
@@ -196,6 +205,7 @@ impl VehicleKind {
             w: a.w * k,
             h: a.h * k,
             seat_x: a.seat_x * k,
+            wheel_x: a.wheel_x * k,
             cover: a.cover * k,
             seat_min: a.seat_min * k,
             bed_x: [a.bed_x[0] * k, a.bed_x[1] * k],
@@ -207,10 +217,10 @@ impl VehicleKind {
     /// 그림 시트의 생김새와 좌석 (tools/draw_vehicles.py와 같은 숫자 — 화면에선 VEHICLE_SCALE배)
     fn art(self) -> Spec {
         match self {
-            VehicleKind::Car => Spec { w: 176.0, h: 100.0, seat_x: -14.0, cover: 56.0, seat_min: 22.0, bed_x: [0.0; 2], bed_cover: 0.0, speed: 230.0, standing: false },
-            VehicleKind::Heli => Spec { w: 208.0, h: 150.0, seat_x: 20.0, cover: 50.0, seat_min: 22.0, bed_x: [0.0; 2], bed_cover: 0.0, speed: 210.0, standing: false },
-            VehicleKind::Scooter => Spec { w: 104.0, h: 118.0, seat_x: -8.0, cover: 0.0, seat_min: 15.0, bed_x: [0.0; 2], bed_cover: 0.0, speed: 130.0, standing: true },
-            VehicleKind::Truck => Spec { w: 236.0, h: 104.0, seat_x: 58.0, cover: 58.0, seat_min: 24.0, bed_x: [-30.0, -88.0], bed_cover: 44.0, speed: 190.0, standing: false },
+            VehicleKind::Car => Spec { w: 176.0, h: 100.0, seat_x: -14.0, wheel_x: 8.0, cover: 56.0, seat_min: 22.0, bed_x: [0.0; 2], bed_cover: 0.0, speed: 230.0, standing: false },
+            VehicleKind::Heli => Spec { w: 208.0, h: 150.0, seat_x: 20.0, wheel_x: 0.0, cover: 50.0, seat_min: 22.0, bed_x: [0.0; 2], bed_cover: 0.0, speed: 210.0, standing: false },
+            VehicleKind::Scooter => Spec { w: 104.0, h: 118.0, seat_x: -8.0, wheel_x: 30.0, cover: 0.0, seat_min: 15.0, bed_x: [0.0; 2], bed_cover: 0.0, speed: 130.0, standing: true },
+            VehicleKind::Truck => Spec { w: 236.0, h: 104.0, seat_x: 58.0, wheel_x: 70.0, cover: 58.0, seat_min: 24.0, bed_x: [-30.0, -88.0], bed_cover: 44.0, speed: 190.0, standing: false },
         }
     }
 }
@@ -218,20 +228,22 @@ impl VehicleKind {
 /// 탈것 창 크기 (논리 px): 그림 + 옆·위 여유 (WINDOW_PAD) + 바닥 그림자 4 — 시트 한 칸 통째로 VEHICLE_SCALE배 (창에 꽉 차게 그려짐)
 pub fn window_logical(kind: VehicleKind) -> (f64, f64) {
     let s = kind.spec();
-    (s.w + 2.0 * WINDOW_PAD * VEHICLE_SCALE, s.h + (WINDOW_PAD + 4.0) * VEHICLE_SCALE)
+    (s.w + 2.0 * WINDOW_PAD * VEHICLE_SCALE, s.h + (WINDOW_PAD + GROUND_PAD) * VEHICLE_SCALE)
 }
 
-/// 좌석 하나 (논리 px): 가로 자리, 발 높이, 가려지는 높이
+/// 좌석 하나 (논리 px): 가로 자리, 발 높이, 가려지는 높이.
+/// 운전석은 펫 앞 끝이 운전대에 닿게 (작은 펫은 앞으로, seat_x보다 뒤로는 안 감).
+/// 가려지는 몫은 크기와 상관없이 다리 (LEG_SHARE) — 큰 펫이 발판에 선 듯 떠 보이지 않게. 발은 바퀴 바닥 아래로는 안 감
 fn seat_geometry(kind: VehicleKind, seat: u8, pet_size_logical: f64) -> (f64, f64, f64) {
     let s = kind.spec();
     let (x, cover, min) = match seat {
-        0 => (s.seat_x, s.cover, s.seat_min),
+        0 => (s.seat_x.max(s.wheel_x - DRIVER_REACH * pet_size_logical), s.cover, s.seat_min),
         n => (s.bed_x[(n as usize - 1).min(1)], s.bed_cover, s.seat_min - 2.0),
     };
     if cover <= 0.0 {
         return (x, min, 0.0);
     }
-    let feet = (cover - LEG_SHARE * pet_size_logical).max(min).min(cover);
+    let feet = (cover - LEG_SHARE * pet_size_logical).max(0.0).min(cover);
     (x, feet, cover - feet)
 }
 
@@ -508,21 +520,30 @@ impl Vehicle {
         self.driver.is_some() || self.bed.iter().any(Option::is_some)
     }
 
-    /// 좌석의 펫 발 자리 (물리 px) — pet_size = 그 펫 크기 (물리 px)
+    /// 좌석의 펫 발 자리 (물리 px) — pet_size = 그 펫 크기 (물리 px).
+    /// 기운 탈것이면 그림처럼 바퀴 바닥 가운데 (x, y)를 축으로 lean도만큼 돈 자리
     pub fn seat_point(&self, seat: u8, pet_size: f64) -> (f64, f64) {
         let (sx, feet, _) = seat_geometry(self.kind, seat, pet_size / self.dpi);
-        (self.x + self.dir * sx * self.dpi, self.y - feet * self.dpi)
+        let (dx, dy) = (self.dir * sx * self.dpi, -feet * self.dpi);
+        let a = self.lean().to_radians();
+        (self.x + dx * a.cos() - dy * a.sin(), self.y + dx * a.sin() + dy * a.cos())
+    }
+
+    /// 화면에서 기운 각도 (도, 시계 방향 + — 웹뷰가 tilt를 뒤집힌 그림에 돌리므로 tilt × dir). 탄 펫도 이만큼 기욺
+    pub fn lean(&self) -> f64 {
+        let p = self.pose();
+        p.tilt * f64::from(p.dir)
     }
 
     /// 좌석에서 가려지는 높이 (물리 px)
-    fn seat_cover(&self, seat: u8, pet_size: f64) -> f64 {
+    pub(crate) fn seat_cover(&self, seat: u8, pet_size: f64) -> f64 {
         seat_geometry(self.kind, seat, pet_size / self.dpi).2 * self.dpi
     }
 
     /// 창 사각형 (물리 px: 왼쪽, 위, 너비, 높이)
     pub fn window_rect(&self) -> (f64, f64, f64, f64) {
         let (w, h) = window_logical(self.kind);
-        (self.x - w / 2.0 * self.dpi, self.y - (h - 4.0) * self.dpi, w * self.dpi, h * self.dpi)
+        (self.x - w / 2.0 * self.dpi, self.y - (h - GROUND_PAD * VEHICLE_SCALE) * self.dpi, w * self.dpi, h * self.dpi)
     }
 
     /// 그림 위 점 (x, y)인지 (물리 px — 펫을 떨굴 때)
@@ -811,7 +832,7 @@ impl Garage {
         }
         let (sx, sy) = v.seat_point(seat, size);
         let dir = v.dir;
-        pet.seat_at(sx, sy, dir, cover, false);
+        pet.seat_at(sx, sy, dir, cover, false, v.lean());
         true
     }
 
@@ -1103,7 +1124,7 @@ impl Garage {
                     let size = p.cfg.size;
                     let (sx, sy) = v.seat_point(seat, size);
                     let lurch_dx = if lurch && seat > 0 { v.dir * 0.08 * size } else { 0.0 };
-                    p.seat_at(sx + lurch_dx, sy, v.dir, v.seat_cover(seat, size), lurch && seat > 0);
+                    p.seat_at(sx + lurch_dx, sy, v.dir, v.seat_cover(seat, size), lurch && seat > 0, v.lean());
                 }
             }
         }
@@ -1708,19 +1729,104 @@ fn reanchor(v: &mut Vehicle, world: &World) {
 mod tests {
     use super::*;
 
+    /// 단계별 펫 크기 (논리 px): 아기 … 어른 × 작은 동물 (0.82) … 큰 동물 (1.65)
+    fn pet_sizes() -> Vec<f64> {
+        use crate::care::Stage;
+        let stages = [Stage::Baby, Stage::Kinder, Stage::Child, Stage::Teenager, Stage::Adult];
+        stages.iter().flat_map(|st| [0.82, 1.0, 1.2, 1.65].map(|m| crate::brain::PET_LOGICAL_SIZE * st.scale() * m)).collect()
+    }
+
     #[test]
-    fn seats_hide_the_legs_and_keep_feet_above_the_floor() {
-        // 청소년(128)은 다리 몫만큼, 아기(50)는 덜 가려짐 — 발은 seat_min 아래로 안 감
-        let (_, feet, hidden) = seat_geometry(VehicleKind::Car, 0, 128.0);
-        assert!(feet >= VehicleKind::Car.spec().seat_min);
-        assert!(hidden > 0.0 && hidden <= LEG_SHARE * 128.0 + 1e-9);
-        let (_, feet_baby, hidden_baby) = seat_geometry(VehicleKind::Car, 0, 50.0);
-        assert!(feet_baby > feet);
-        assert!((hidden_baby - LEG_SHARE * 50.0).abs() < 1e-9);
-        // 킥보드는 서서 탐 (안 가림)
+    fn seats_hide_the_legs_so_big_pets_sit_down_instead_of_standing() {
+        // 아기부터 어른까지 다리 몫 (LEG_SHARE)만큼 문·벽 아래로 — 발은 바퀴 바닥 아래로는 안 감
+        for kind in [VehicleKind::Car, VehicleKind::Heli, VehicleKind::Truck] {
+            for seat in 0..=kind.bed_seats() as u8 {
+                for size in pet_sizes() {
+                    let (_, feet, hidden) = seat_geometry(kind, seat, size);
+                    let cover = feet + hidden;
+                    assert!(feet >= 0.0, "{kind:?} {seat} {size}");
+                    assert!((hidden - (LEG_SHARE * size).min(cover)).abs() < 1e-9, "{kind:?} seat {seat} size {size}: hidden {hidden}");
+                }
+            }
+        }
+        // 킥보드는 서서 탐 (안 가림, 발판 위)
+        assert_eq!(seat_geometry(VehicleKind::Scooter, 0, 128.0).1, VehicleKind::Scooter.spec().seat_min);
         assert_eq!(seat_geometry(VehicleKind::Scooter, 0, 128.0).2, 0.0);
         // 트럭 짐칸은 뒤쪽
         assert!(seat_geometry(VehicleKind::Truck, 1, 128.0).0 < 0.0);
+    }
+
+    #[test]
+    fn drivers_sit_right_behind_the_steering_wheel() {
+        // 운전석 펫 앞 끝 (가운데 + DRIVER_REACH × 크기)이 그림의 운전대 (wheel_x)에 닿음 — 작은 펫은 앞으로 당겨 앉고,
+        // 큰 펫은 원래 좌석 (seat_x)보다 뒤로 가지 않음
+        for kind in [VehicleKind::Car, VehicleKind::Truck, VehicleKind::Scooter] {
+            let s = kind.spec();
+            assert!(s.wheel_x > s.seat_x, "{kind:?}");
+            for size in pet_sizes() {
+                let (x, _, _) = seat_geometry(kind, 0, size);
+                assert!(x + DRIVER_REACH * size >= s.wheel_x - 1e-9, "{kind:?} {size}: front {} behind wheel {}", x + DRIVER_REACH * size, s.wheel_x);
+                assert!(x >= s.seat_x - 1e-9 && x < s.wheel_x, "{kind:?} {size}");
+            }
+        }
+        // 🚗 아기 운전석은 문 (그림 x −18 … 30) 안
+        let baby = crate::brain::PET_LOGICAL_SIZE * crate::care::Stage::Baby.scale() * 0.85;
+        let (x, _, _) = seat_geometry(VehicleKind::Car, 0, baby);
+        assert!(x > -18.0 * VEHICLE_SCALE, "{x}");
+    }
+
+    #[test]
+    fn seat_points_follow_dpi_and_direction() {
+        for kind in VehicleKind::ALL {
+            for dpi in [1.0, 1.25, 1.5] {
+                for dir in [1.0, -1.0] {
+                    let v = Vehicle::new(1, kind, 700.0 * dpi, 900.0 * dpi, dpi, dir);
+                    for size in pet_sizes() {
+                        for seat in 0..=kind.bed_seats() as u8 {
+                            let (lx, feet, hidden) = seat_geometry(kind, seat, size);
+                            let (x, y) = v.seat_point(seat, size * dpi);
+                            assert!((x - (700.0 + dir * lx) * dpi).abs() < 1e-9 && (y - (900.0 - feet) * dpi).abs() < 1e-9);
+                            assert!((v.seat_cover(seat, size * dpi) - hidden * dpi).abs() < 1e-9);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_drawing_stands_on_the_vehicle_y() {
+        // 그림의 바퀴 바닥은 창 아래에서 4 그림 px (draw_vehicles.py UNDER × VEHICLE_SCALE) 위 — 그 자리가 y
+        for dpi in [1.0, 1.25, 1.5] {
+            let v = Vehicle::new(1, VehicleKind::Car, 700.0, 900.0, dpi, 1.0);
+            let (_, top, _, h) = v.window_rect();
+            assert!((top + h - 4.0 * VEHICLE_SCALE * dpi - 900.0).abs() < 1e-9, "dpi {dpi}");
+        }
+    }
+
+    #[test]
+    fn riders_turn_with_the_tilted_vehicle_around_its_ground_point() {
+        // 🚁 날며 숙인 만큼 (웹뷰: 바퀴 바닥 가운데를 축으로 rotate) 좌석 자리도 같은 축으로 돌고, 펫은 같은 각도로 기욺 (lean)
+        for dpi in [1.0, 1.5] {
+            for dir in [1.0, -1.0] {
+                let mut v = Vehicle::new(1, VehicleKind::Heli, 700.0, 500.0, dpi, dir);
+                assert_eq!(v.lean(), 0.0);
+                let flat = v.seat_point(0, 100.0 * dpi);
+                v.phase = Phase::Fly(FlyStage::Cruise { leg: 1.0 });
+                v.speed = v.kind.spec().speed * dpi;
+                let tilt = v.pose().tilt;
+                assert!(tilt > 5.0);
+                assert_eq!(v.lean(), tilt * dir);
+                // 화면 좌표 (y 아래 +)에서 시계 방향 lean도
+                let a = v.lean().to_radians();
+                let (dx, dy) = (flat.0 - 700.0, flat.1 - 500.0);
+                let want = (700.0 + dx * a.cos() - dy * a.sin(), 500.0 + dx * a.sin() + dy * a.cos());
+                let got = v.seat_point(0, 100.0 * dpi);
+                assert!((got.0 - want.0).abs() < 1e-9 && (got.1 - want.1).abs() < 1e-9, "{got:?} vs {want:?}");
+                // 앞으로 숙임: 오른쪽을 보면 조종석 (앞쪽 위)이 앞으로 밀림
+                assert!((got.0 - flat.0) * dir > 0.0);
+            }
+        }
     }
 
     /// 탈것은 제일 큰 단계 (어른) 펫에 딱 맞는 크기: 자동차 길이 ≈ 어른 펫 한 마리 (아기도 문 위로 보임)

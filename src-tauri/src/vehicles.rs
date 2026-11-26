@@ -2,7 +2,8 @@
 //! `🚗 탈것 꺼내기 ▸` 메뉴로 꺼내고 (한 화면에 4대), 우클릭 "이것만 치우기", "🧹 모든 물건 다 치우기"로 치움.
 //! 📦 창은 물건 창처럼 게임 루프 밖 일꾼 스레드 (vehicle-windows)가 만들어 돌려보냄 — 오기 전에도 탈것은 움직이고 탈 수 있음 (창 일만 건너뜀).
 //! 틱마다 코어 탈것 목록과 창을 맞춤: 새 탈것은 창을 주문하고, 없어진 탈것 (치움·친구 화면으로 감·오래된 남의 것)의 창은 닫음.
-//! 끼익·쿵은 그 창에 `vehicle-fx`로 알림 (웹뷰가 먼지·💥). 펫 창은 탈것 좌석에 앉고 다리 몫은 펫 웹뷰가 자름 (render.seat).
+//! 끼익·쿵은 그 창에 `vehicle-fx`로 알림 (웹뷰가 먼지·💥). 펫 창은 탈것 좌석에 앉고 다리 몫은 펫 웹뷰가 자름 (render.seat),
+//! 기운 탈것 (🚁 날며 숙임)과 같이 기욺 (render.lean). 탈것 배율은 창의 배율을 따름 (set_dpi_hint).
 
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::OnceLock;
@@ -118,10 +119,16 @@ impl Vehicles {
         Vehicles { garage: Garage::new(fastrand::u64(..)), live: Vec::new(), worker: None, fading: Default::default(), spots: Vec::new(), dpi_hint: 1.0, shown: 0, thrown: Vec::new() }
     }
 
-    /// 새 탈것에 쓸 화면 배율 (내 동물 창의 배율)
+    /// 새 탈것에 쓸 화면 배율 (내 동물 창의 배율). 창이 온 탈것은 그 창의 배율로 맞춤 —
+    /// 배율이 다른 모니터로 넘어가 창 크기가 바뀌어도 좌석 (펫 창 자리)이 그림에 맞게 (WORLD_REFRESH마다)
     pub fn set_dpi_hint(&mut self, dpi: f64) {
         if dpi.is_finite() && dpi > 0.0 {
             self.dpi_hint = dpi;
+        }
+        for l in &self.live {
+            if let Some(d) = l.window.as_ref().and_then(|w| w.scale_factor().ok()) {
+                self.garage.set_dpi(l.id, d);
+            }
         }
     }
 
