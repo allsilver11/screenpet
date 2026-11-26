@@ -98,6 +98,21 @@ pub struct Vehicles {
 }
 
 impl Vehicles {
+    /// 🔄 탈것 창 웹뷰를 다시 읽음 (새로고침·깨어남). 자리·모습은 resend가 다시 보냄
+    pub fn reload_windows(&mut self) {
+        for w in self.live.iter().filter_map(|l| l.window.as_ref()) {
+            let _ = w.reload();
+        }
+    }
+
+    /// 다시 읽은 탈것 창에 자리·모습을 다시 보냄 (페이지가 다 뜬 뒤)
+    pub fn resend(&mut self) {
+        for l in &mut self.live {
+            l.last_pos = None;
+            l.last_pose = None;
+        }
+    }
+
     /// 빈 상태
     pub fn new() -> Vehicles {
         Vehicles { garage: Garage::new(fastrand::u64(..)), live: Vec::new(), worker: None, fading: Default::default(), spots: Vec::new(), dpi_hint: 1.0, shown: 0, thrown: Vec::new() }

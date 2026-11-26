@@ -73,7 +73,7 @@ pub struct AppState {
     pub hand_feeding: AtomicBool,
     /// 트레이 "숨기기 / 보이기"로 모두 숨겨 둠 — 그동안 새로 뜨거나 다시 나타나는 창(동물·그릇·침 자국)도 숨긴 채로
     pub hidden: AtomicBool,
-    /// 🐾🐾🐾 메뉴가 다루는 내 펫 (창 라벨 — 펫을 우클릭·클릭하거나 🐾 내 펫 ▸ 고른 펫에서 고름. 처음엔 첫 펫)
+    /// 🐾🐾🐾 고른 내 펫 (창 라벨 — 펫을 우클릭·클릭하거나 펫 하위 메뉴 항목을 누르면 그 펫. 처음엔 첫 펫): 밥 주기 ▸ 좋아하는 음식 글자, 배부를 때 그릇 받는 펫
     pub picked: Mutex<String>,
     /// 🐾🐾🐾 내 펫들의 지금 모습 (메뉴·숨기기/보이기용) — 게임 루프가 바뀔 때만 갱신
     pub own: Mutex<Vec<tray::OwnView>>,
@@ -172,7 +172,7 @@ async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<
         return Ok(());
     }
     if !slots::is_guest_label(&label) {
-        // 🐾🐾🐾 우클릭한 펫이 메뉴의 고른 펫이 됨 (하우스 창은 지금 고른 펫 그대로)
+        // 🐾🐾🐾 우클릭한 펫이 고른 펫이 됨 (밥 주기 ▸ 좋아하는 음식 — 하우스 창은 지금 고른 펫 그대로)
         if slots::is_own_label(&label) {
             tray::pick(window.app_handle(), &label);
         }
@@ -209,13 +209,6 @@ fn pair_answer(window: WebviewWindow, state: State<AppState>, accept: bool) {
         return;
     }
     state.send(Input::Net(NetInput::PairAnswer(accept)));
-}
-
-/// 트레이에서 동물을 바꿨을 때. 저장·크기·웹뷰 시트 교체는 게임 루프가 함 (설정은 루프만 씀).
-pub fn select_pet(app: &AppHandle, id: &str) {
-    let state = app.state::<AppState>();
-    let Some(entry) = state.pets.iter().find(|p| p.id == id) else { return };
-    state.send(Input::SetPet { entry: entry.clone(), remote: false });
 }
 
 /// 패닉을 config 폴더의 `crash.log`에 남김 (배포판은 콘솔이 없어 그냥 사라짐)
@@ -280,7 +273,7 @@ fn main() {
             let care = lead.care.clone();
 
             let (tx, rx) = mpsc::channel();
-            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.dev_secret().is_some())?;
+            let menu = tray::build(app.handle(), &pets, &game_loop::favorite_of(&entry), cfg.housed, cfg.feed_mode, cfg.dev_secret().is_some())?;
             let stage = slots::stage_payload(&entry, care.stage, cfg.pet_size());
             let house_state = HouseState {
                 pet: stage.pet.clone(),

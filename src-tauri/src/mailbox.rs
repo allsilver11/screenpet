@@ -281,8 +281,12 @@ impl Mailbox {
         *VIEW.lock().unwrap() = self.letters.clone();
         let _ = app.emit_to(MAILBOX_LABEL, "mailbox-state", &self.letters);
         let n = self.unread();
-        if let Some(item) = &app.state::<AppState>().menu.mailbox {
+        let menu = &app.state::<AppState>().menu;
+        if let Some(item) = &menu.mailbox {
             let _ = item.set_text(crate::tray::board_label(n));
+            // 안 읽은 건의가 있으면 ℹ️ 도움말·건의 ▸ 글자에 🔔
+            menu.bell[1].store(n > 0, std::sync::atomic::Ordering::Relaxed);
+            crate::tray::sync_info(menu);
         }
     }
 

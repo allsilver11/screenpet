@@ -1,9 +1,10 @@
 //! 트레이 아이콘과 우클릭 메뉴임: 메뉴 만들기(`build`), 상태에 맞춰 글자·체크 다시 맞추기(`sync_*`), 눌린 항목 처리.
 //! 눌린 항목은 대부분 `Input`으로 게임 루프에 넘기고, 창 숨기기·보이기 같은 것은 여기서 바로 함.
 //! 친구 메뉴(`👫 친구랑 놀기 ▸`)는 `network.rs`가 넘긴 `FriendsMenu`로 다시 채움.
-//! 🐾🐾🐾 내 펫이 여럿이면 🐾 내 펫 ▸ 은 "고른 펫" 하나를 다룸 (우클릭·클릭한 펫, 또는 고른 펫 ▸에서 고름 — `pick`).
-//! 펫 추가·보내 주기도 여기, "집에 와"는 펫마다 + 모두, 하우스·숨기기·집중은 모두 한 번에.
-use screenpet_core::care::{growth_label, Care, Food, Stage};
+//! 🐾🐾🐾 펫마다 맨 위에 하위 메뉴 (`sync_pets` — 모양이 바뀔 때만 새로 만들고 아니면 글자·체크만): 종류·🎮 조작·성장 멈추기·처음부터·
+//! 집에 와·놀러 보내기·보내 주기. 누른 항목은 PickPet으로 그 펫을 고른 뒤 할 일을 보냄 (`send_to_pet`). 깊이는 둘까지.
+//! "🏡 모두 집에 와"는 둘 이상 가 있을 때만, 하우스·숨기기·집중은 모두 한 번에. 종료 위에 🔄 새로고침·♻️ 재시작.
+use screenpet_core::care::{growth_label, Food, Stage};
 use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::presence::FocusLength;
@@ -12,6 +13,7 @@ use screenpet_core::tint::BodyTint;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Manager, WebviewWindow, Wry};
 
@@ -50,38 +52,41 @@ const BRING_PREFIX: &str = "net:bring:";
 const THROW_VOLLEY_PREFIX: &str = "net:throw10:";
 /// 친구 하위 메뉴 "편지 들려 보내기…" (뒤는 친구 id)
 const LETTER_PREFIX: &str = "net:letter:";
-/// "놀러 보내기 ▸" 목록 항목 (친구 하위 메뉴의 항목과 id가 겹치면 안 됨)
-const SEND_LIST_PREFIX: &str = "net:send-list:";
+/// 맨 위 "🏡 집에 와" / "🏡 모두 집에 와" (놀러 가 있는 펫 모두 — 놀러 간 펫이 있을 때만 🏠 하우스 바로 아래)
 const COME_HOME_ID: &str = "net:come-home";
-/// 🐾🐾🐾 "🏡 집에 와 ▸" 펫마다 (뒤는 펫 uid)와 "모두 집에 와"
+/// 🐾🐾🐾 펫 하위 메뉴의 "🏡 집에 와" (뒤는 펫 uid)
 const COME_HOME_PREFIX: &str = "net:come-home:";
-const COME_HOME_ALL_ID: &str = "net:come-home-all";
-const COME_HOME_MENU_ID: &str = "come-home-menu";
-/// 🐾🐾🐾 "놀러 보내기 ▸ 친구 ▸ 펫" (뒤는 "<펫 uid>|<친구 id>" — uid에는 |가 없음)
+/// 🐾🐾🐾 친구 하위 메뉴의 "<펫> 보내기" (뒤는 "<펫 uid>|<친구 id>" — uid에는 |가 없음)
 const SEND_PET_PREFIX: &str = "net:send-pet:";
-/// 🐾🐾🐾 🐾 내 펫 ▸ 고른 펫 ▸ (뒤는 펫 창 라벨), 🐾 펫 추가 ▸ (뒤는 동물 id), 펫 보내 주기 ▸ 정말?
-const PICK_PREFIX: &str = "pick:";
-const PICK_MENU_ID: &str = "pick-menu";
+/// 펫 하위 메뉴 "놀러 보내기 ▸ <친구>" (뒤는 "<펫 uid>|<친구 id>" — 친구 하위 메뉴의 항목과 id가 겹치면 안 됨)
+const PET_SEND_PREFIX: &str = "net:pet-send:";
+/// 🐾 펫 추가 ▸ (뒤는 동물 id)
 const ADD_PET_PREFIX: &str = "add-pet:";
-const LET_GO_ID: &str = "let-go";
+/// 펫 하위 메뉴 항목들 (뒤는 펫 창 라벨 — 누르면 PickPet으로 그 펫을 고른 뒤 할 일을 보냄):
+/// 종류 바꾸기 (뒤는 "<라벨>|<동물 id>"), 🎮 조작, 성장 멈추기, 처음부터 다시 키우기 ▸ 정말?, 보내 주기 ▸ 정말?, 🎨 흐물이 색 (뒤는 "<라벨>|<색 id>")
+const KIND_PREFIX: &str = "kind:";
+const CONTROL_PREFIX: &str = "control:";
+const LOCK_PREFIX: &str = "lock:";
+const RESET_PREFIX: &str = "reset:";
+const LET_GO_PREFIX: &str = "let-go:";
 /// 펫 이름 앞에 붙는 차례 (여럿일 때만)
 const ORDINALS: [&str; MAX_OWN_PETS] = ["첫째", "둘째", "셋째"];
 /// 📱 대기 중인 컴퓨터의 "이 컴퓨터로 놀기"
 const PLAY_HERE_ID: &str = "net:play-here";
 /// 📱 노는 컴퓨터의 "다른 컴퓨터 펫 데리고 오기"
 const BRING_DEVICE_ID: &str = "net:bring-device";
-/// "집에 와"가 들어가는 자리: 메뉴 맨 위부터 danni, 구분선, 🐾 내 펫, 🍚 밥 주기, 🏠 하우스 다음
-const COME_HOME_POSITION: usize = 5;
-/// 🐾 내 펫 ▸ 🕐 최근 한 시간 창 열기
+/// 펫 하위 메뉴가 들어가는 자리: 메뉴 맨 위부터 danni, 구분선 다음 (펫마다 하나씩 차례로)
+const PETS_POSITION: usize = 2;
+/// 🏠 하우스 항목 id ("집에 와"는 이 항목 바로 아래에 끼어듦)
+const HOUSE_ID: &str = "house";
+/// 🎮 놀기 ▸ 🕐 최근 한 시간 창 열기
 const TIMELINE_ID: &str = "timeline";
 const DODGE_ID: &str = "dodge";
-/// 🎮 조작 모드 체크 항목
-const CONTROL_ID: &str = "control";
-/// 🐾 내 펫 ▸ 🎨 흐물이 색 ▸ 체크 항목 (뒤는 BodyTint id — 설정에 남음, 웹뷰가 잉크 자리만 칠함)
+/// 펫 하위 메뉴 ▸ 🎨 흐물이 색 ▸ 체크 항목 (뒤는 "<펫 창 라벨>|<BodyTint id>" — 색은 하나라 설정에 남음, 웹뷰가 잉크 자리만 칠함)
 const TINT_PREFIX: &str = "tint:";
-const TINT_MENU_ID: &str = "tint-menu";
-/// "🎨 흐물이 색"이 들어가는 자리: 🐾 내 펫 ▸ 고른 펫, 성장 단계, 최근 한 시간, 키우기 다음 (잉크 선 동물일 때만)
-const TINT_POSITION: usize = 4;
+/// 🔄 새로고침 (떠 있는 창을 모두 다시 읽음)·♻️ 재시작 (저장하고 다시 띄움) — 종료 바로 위
+const REFRESH_ID: &str = "refresh";
+const RESTART_ID: &str = "restart";
 /// 🌨️ 날씨 효과 체크 항목 (게임 루프가 설정으로 맞춤 — 일 년 내내 누를 수 있음)
 const WEATHER_ID: &str = "weather";
 /// ⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸ ☀️ 실제 날씨 / 📅 계절 날씨 / 직접 고른 날씨 체크 (뒤는 WeatherSource id), 📍 날씨 지역 ▸ 도시 체크 (뒤는 Place id) — 설정에 남음
@@ -104,8 +109,12 @@ const TYPING_PERMISSION_ID: &str = "typing-permission";
 const TYPING_PERMISSION_LABEL: &str = "⌨️ 타자 응원 — Mac 권한 켜기…";
 /// 시스템 설정 ▸ 개인정보 보호 및 보안 ▸ 입력 모니터링
 const INPUT_MONITORING_URL: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
-/// ⚙️ 설정 안에서 그 항목이 들어가는 자리 (날씨 효과, 날씨 종류, 똥, 커서 장난, 타자 응원 다음)
-const TYPING_PERMISSION_POSITION: usize = 5;
+/// ⚙️ 설정 안에서 그 항목이 들어가는 자리 (날씨 효과, 날씨 종류, 날씨 지역, 구분선, 똥, 커서 장난, 타자 응원 다음)
+const TYPING_PERMISSION_POSITION: usize = 7;
+/// 🎮 놀기 ▸ 의 혼자 놀기 항목 수 (빗자루, 쓰레기 꺼내기, 탈것 꺼내기, 똥피하기, 최근 한 시간) — 그 아래는 친구 묶음 (fill_friends가 다시 채움)
+const PLAY_FIXED: usize = 5;
+/// 🙈 숨기기 항목 id (🎮 조작은 이 항목 바로 위에 끼어듦)
+const TOGGLE_ID: &str = "toggle";
 /// 권한 창을 띄우기 전에 펫이 먼저 하는 말 (한 줄로 짧게)
 pub const TYPING_PERMISSION_EXPLAIN: &str = "타자 속도만 세요 — 무엇을 치는지는 안 봐요";
 /// 실행 중에 권한이 생겼을 때 (macOS는 보통 앱을 다시 켜야 적용됨)
@@ -115,11 +124,12 @@ const POOP_LABEL: &str = "💩 펫이 똥 싸기";
 /// 🌗 루모스·녹스로 화면 밝기 바꾸기 (⚙️ 설정 체크 항목, 기본 끔 — 설정에 남음 (Config.lumos_light 그대로), 코어 lumos.rs)
 const LUMOS_LIGHT_ID: &str = "lumos-light";
 const LUMOS_LIGHT_LABEL: &str = "🌗 루모스·녹스로 화면 밝기 바꾸기";
-/// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남음)
+/// 🍅 뽀모도로 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남음)
 const FOCUS_TOGGLE_ID: &str = "focus:toggle";
 const FOCUS_SHORT_ID: &str = "focus:short";
 const FOCUS_LONG_ID: &str = "focus:long";
-const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift·↑↑ 특기, Esc로 끝)";
+/// 펫 하위 메뉴의 🎮 조작 체크 (방향키·Space·Shift·↑↑ 특기, Esc로 끝 — 자세한 건 도움말)
+const CONTROL_LABEL: &str = "🎮 조작 (방향키·↑↑ 특기, Esc로 끝)";
 /// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번 — 말풍선은 줄바꿈 없이 창(128px)에 잘리니 한 줄로 짧게 (어디서 켜는지는 ui/help.html)
 /// 💌 개발자에게 건의하기 (feedback.rs)
 const FEEDBACK_ID: &str = "feedback";
@@ -215,14 +225,8 @@ pub struct TrayMenu {
     pub menu: Menu<Wry>,
     /// 좋아하는 음식 항목 (손으로 주기 ▸ / 그릇에 주기 ▸ 두 군데 — 동물이 바뀌면 둘 다 글자를 바꿈)
     pub favorite: [MenuItem<Wry>; 2],
-    /// 성장 단계 한 줄 (누를 수 없음, 단계·성장 멈춤이 바뀌면 글자만 바꿈)
-    pub growth: MenuItem<Wry>,
-    /// 🔒 자리 고정 체크
-    pub lock: CheckMenuItem<Wry>,
     /// 하우스 들어가기 / 나오기 (글자가 바뀜)
     pub house: MenuItem<Wry>,
-    /// 🎮 조작 모드 (게임 루프가 실제 상태로 다시 맞춤 — Esc·3분 무입력으로 끝나면 체크가 풀림)
-    pub control: CheckMenuItem<Wry>,
     /// 🐾 커서 장난 (게임 루프가 실제 설정으로 다시 맞춤)
     pub cursor_play: CheckMenuItem<Wry>,
     /// ⌨️ 타자 응원 (게임 루프가 실제 설정으로 다시 맞춤)
@@ -248,7 +252,7 @@ pub struct TrayMenu {
     pub places: Vec<(CheckMenuItem<Wry>, Place)>,
     /// 🧹 빗자루 (게임 루프가 들고 있는지에 맞춤)
     pub broom: CheckMenuItem<Wry>,
-    /// ⏱️ 집중 친구 ▸ (켜져 있으면 글자에 ✓)
+    /// 🍅 뽀모도로 ▸ (켜져 있으면 글자에 ✓)
     pub focus: Submenu<Wry>,
     /// 집중 켜기·끄기
     pub focus_toggle: CheckMenuItem<Wry>,
@@ -256,16 +260,12 @@ pub struct TrayMenu {
     pub focus_short: CheckMenuItem<Wry>,
     /// 긴 집중
     pub focus_long: CheckMenuItem<Wry>,
-    /// 동물 고르기 항목 (항목, 동물 id) — `키우기: <지금 동물> ▸` 하위 메뉴 안
-    pub pets: Vec<(CheckMenuItem<Wry>, String)>,
-    /// `키우기: <지금 동물> ▸` 하위 메뉴
-    pub pets_menu: Submenu<Wry>,
-    /// 🐾 내 펫 ▸ (🎨 흐물이 색을 넣고 뺌)
-    pub my_pet: Submenu<Wry>,
-    /// 🎨 흐물이 색 ▸ (잉크 선 동물일 때만 내 펫 안에 있음) 과 색마다 체크 항목
-    pub tint_menu: Submenu<Wry>,
-    /// 색마다 체크 항목
-    pub tints: Vec<(CheckMenuItem<Wry>, BodyTint)>,
+    /// 🐾🐾🐾 펫마다의 하위 메뉴 (게임 루프 스레드만 sync_pets로 바꿈 — 메인 스레드는 이 잠금을 잡지 않음)
+    pub pet_menus: Arc<Mutex<Vec<PetMenu>>>,
+    /// 마지막으로 받은 친구 메뉴 모델 (펫 하위 메뉴의 놀러 보내기 ▸ 가 씀)
+    pub friends_model: Arc<Mutex<Option<FriendsMenu>>>,
+    /// 지금 🎨 흐물이 색 (새로 만드는 펫 하위 메뉴의 체크)
+    pub tint: Arc<Mutex<BodyTint>>,
     /// 📮 건의함 항목 (개발자 컴퓨터만 들고 있음 — 안 읽은 수를 글자에 붙임)
     pub mailbox: Option<MenuItem<Wry>>,
     /// 🚀 컴퓨터 켜면 자동 실행 (게임 루프가 설정으로 다시 맞춤)
@@ -276,22 +276,18 @@ pub struct TrayMenu {
     pub update: MenuItem<Wry>,
     /// 🙈 숨기기 / 🐾 보이기 — 지금 누르면 할 일만 보임 (toggle_label)
     pub toggle: MenuItem<Wry>,
-    /// `👫 친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채움)
+    /// 🎮 놀기 ▸ (혼자 놀기 아래 친구 묶음을 네트워크 상태에 따라 다시 채움)
     pub friends: Submenu<Wry>,
-    /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 메뉴에 있음 — 하우스 아래)
+    /// ℹ️ 도움말·건의 ▸ (새 버전·안 읽은 건의가 있으면 글자 끝에 🔔 — sync_info)
+    pub info: Submenu<Wry>,
+    /// 🔔 까닭: 새 버전이 나왔음, 안 읽은 건의가 있음
+    pub bell: Arc<[std::sync::atomic::AtomicBool; 2]>,
+    /// 맨 위 🎮 조작 (한 마리: 체크, 여럿: 펫마다 체크 ▸) — sync_pets가 펫 목록에 맞춰 끼움
+    pub control: Arc<Mutex<Option<ControlMenu>>>,
+    /// 🏡 집에 와 / 🏡 모두 집에 와 (내 펫이 친구 화면에 가 있을 때만 메뉴에 있음 — 하우스 아래)
     pub come_home: MenuItem<Wry>,
-    /// 🐾🐾🐾 🏡 집에 와 ▸ (펫이 여럿일 때 come_home 대신 — 모두 / 펫마다)
-    pub come_home_menu: Submenu<Wry>,
-    /// 🐾🐾🐾 고른 펫 ▸ (펫마다 체크 항목 — 펫 목록이 바뀌면 다시 채움)
-    pub pick_menu: Submenu<Wry>,
     /// 🐾 펫 추가 ▸ (꽉 차면 흐림)
     pub add_menu: Submenu<Wry>,
-    /// 펫 보내 주기 ▸ 와 그 안의 "정말 …?" (한 마리뿐이거나 놀러 가 있으면 흐림)
-    pub let_go: Submenu<Wry>,
-    /// "정말 <이름> 보내 줄까요?" 항목
-    pub let_go_item: MenuItem<Wry>,
-    /// 고른 펫 ▸에 지금 들어 있는 (라벨, 이름) — 같으면 다시 채우지 않음
-    pub pick_list: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
     /// 밥 주기 방법별 하위 메뉴: 손으로 주기 ▸ / 그릇에 주기 ▸ (마지막에 쓴 쪽에 ✓ — 배고플 때 고르기도 그 방법을 따름)
     pub hand_mode: Submenu<Wry>,
     /// 그릇에 주기 ▸
@@ -319,6 +315,153 @@ pub struct OwnView {
     pub away: bool,
     /// 친구 화면에 가 있거나 가는 중 (동물 바꾸기·보내 주기를 막음)
     pub busy: bool,
+    /// 🎮 조작 모드로 조종하는 중
+    pub controlled: bool,
+}
+
+/// 🐾🐾🐾 펫 하위 메뉴의 모양: 이것이 바뀌면 그 하위 메뉴를 새로 만들고, 같으면 글자·체크·흐림만 바꿈
+#[derive(Debug, Clone, PartialEq)]
+pub struct PetShape {
+    /// 펫 창 라벨
+    pub label: String,
+    /// 펫 uid
+    pub uid: String,
+    /// 내 펫이 둘 이상 (보내 주기 ▸ 가 있음)
+    pub many: bool,
+    /// 🎨 흐물이 색을 고를 수 있는 동물 (pet.json tint)
+    pub tintable: bool,
+    /// 친구 화면에 가 있음 (🏡 집에 와 가 있음)
+    pub away: bool,
+    /// 놀러 보내기 ▸ 에 보일 연결된 친구들 (보낼 컴퓨터 id, 이름)
+    pub friends: Vec<(String, String)>,
+}
+
+/// 맨 위 🎮 조작: 한 마리면 체크 하나, 여럿이면 펫마다 체크가 든 하위 메뉴 (다른 펫을 고르면 그 펫으로 넘어감)
+#[derive(Clone)]
+pub enum ControlMenu {
+    /// 한 마리 (체크, 그 펫 창 라벨)
+    One(CheckMenuItem<Wry>, String),
+    /// 여럿 (하위 메뉴, 펫마다 (체크, 펫 창 라벨))
+    Many(Submenu<Wry>, Vec<(CheckMenuItem<Wry>, String)>),
+}
+
+impl ControlMenu {
+    /// 이 모양을 만든 펫 창 라벨들 (바뀌면 다시 만듦)
+    fn labels(&self) -> Vec<String> {
+        match self {
+            ControlMenu::One(_, l) => vec![l.clone()],
+            ControlMenu::Many(_, items) => items.iter().map(|(_, l)| l.clone()).collect(),
+        }
+    }
+
+    /// 메뉴에서 뺌
+    fn remove_from(&self, menu: &Menu<Wry>) -> tauri::Result<()> {
+        match self {
+            ControlMenu::One(item, _) => menu.remove(item),
+            ControlMenu::Many(sub, _) => menu.remove(sub),
+        }
+    }
+
+    /// 🙈 숨기기 바로 위에 끼움
+    fn insert_into(&self, menu: &Menu<Wry>) -> tauri::Result<()> {
+        let at = menu.items()?.iter().position(|item| item.id() == TOGGLE_ID).unwrap_or(0);
+        match self {
+            ControlMenu::One(item, _) => menu.insert(item, at),
+            ControlMenu::Many(sub, _) => menu.insert(sub, at),
+        }
+    }
+}
+
+/// 맨 위 🎮 조작을 펫들에 맞춤: 펫 목록(라벨)이 바뀌었을 때만 다시 만들고, 아니면 체크·글자만
+fn sync_control(app: &AppHandle, menu: &TrayMenu, views: &[OwnView]) {
+    let labels: Vec<String> = views.iter().map(|v| v.label.clone()).collect();
+    let old = menu.control.lock().unwrap().clone();
+    let current = match old.filter(|c| c.labels() == labels) {
+        Some(c) => c,
+        None => {
+            // 잠금은 꺼낼 때만 (메뉴 바꾸기는 잠금 밖에서)
+            let taken = menu.control.lock().unwrap().take();
+            if let Some(c) = taken {
+                let _ = c.remove_from(&menu.menu);
+            }
+            let built = build_control(app, views).and_then(|c| c.insert_into(&menu.menu).map(|_| c));
+            match built {
+                Ok(c) => {
+                    *menu.control.lock().unwrap() = Some(c.clone());
+                    c
+                }
+                Err(e) => {
+                    eprintln!("failed to build the control menu: {e}");
+                    return;
+                }
+            }
+        }
+    };
+    match &current {
+        ControlMenu::One(item, _) => {
+            let _ = item.set_checked(views.first().is_some_and(|v| v.controlled));
+        }
+        ControlMenu::Many(sub, items) => {
+            let on = views.iter().find(|v| v.controlled);
+            let _ = sub.set_text(match on {
+                Some(v) => format!("🎮 조작: {}", menu_text(&v.name)),
+                None => "🎮 조작".to_string(),
+            });
+            for ((item, _), view) in items.iter().zip(views) {
+                let _ = item.set_text(pet_title(&view.name));
+                let _ = item.set_checked(view.controlled);
+            }
+        }
+    }
+}
+
+/// 맨 위 🎮 조작을 새로 만듦 (한 마리: 체크, 여럿: 펫마다 체크 ▸) — 항목 id 뒤는 그 펫 창 라벨
+fn build_control(app: &AppHandle, views: &[OwnView]) -> tauri::Result<ControlMenu> {
+    if let [only] = views {
+        let item = CheckMenuItem::with_id(app, format!("{CONTROL_PREFIX}{}", only.label), CONTROL_LABEL, true, false, None::<&str>)?;
+        return Ok(ControlMenu::One(item, only.label.clone()));
+    }
+    let sub = Submenu::new(app, "🎮 조작", true)?;
+    let mut items = Vec::new();
+    for v in views {
+        let item = CheckMenuItem::with_id(app, format!("{CONTROL_PREFIX}{}", v.label), pet_title(&v.name), true, false, None::<&str>)?;
+        sub.append(&item)?;
+        items.push((item, v.label.clone()));
+    }
+    sub.append(&PredefinedMenuItem::separator(app)?)?;
+    sub.append(&MenuItem::new(app, "방향키·↑↑ 특기, Esc로 끝", false, None::<&str>)?)?;
+    Ok(ControlMenu::Many(sub, items))
+}
+
+/// ℹ️ 도움말·건의 ▸ 글자: 새 버전이 나왔거나 안 읽은 건의가 있으면 🔔
+pub fn sync_info(menu: &TrayMenu) {
+    let ring = menu.bell.iter().any(|b| b.load(Ordering::Relaxed));
+    let _ = menu.info.set_text(if ring { "ℹ️ 도움말·건의 🔔" } else { "ℹ️ 도움말·건의" });
+}
+
+/// 🐾🐾🐾 펫 하위 메뉴 하나와 그 안의 바뀌는 항목들
+#[derive(Clone)]
+pub struct PetMenu {
+    /// 이 하위 메뉴를 만든 모양
+    pub shape: PetShape,
+    /// "🐾 첫째 고양이 ▸"
+    pub sub: Submenu<Wry>,
+    /// 성장 단계 한 줄 (누를 수 없음)
+    pub growth: MenuItem<Wry>,
+    /// "종류: 고양이 ▸"
+    pub kind: Submenu<Wry>,
+    /// 종류마다 체크 (항목, 동물 id)
+    pub species: Vec<(CheckMenuItem<Wry>, String)>,
+    /// 🎨 흐물이 색 체크들 (흐물이일 때만)
+    pub tints: Vec<(CheckMenuItem<Wry>, BodyTint)>,
+    /// 성장 멈추기 체크
+    pub lock: CheckMenuItem<Wry>,
+    /// 놀러 보내기 ▸ 와 친구마다 항목 (항목, 보낼 컴퓨터 id)
+    pub send: Submenu<Wry>,
+    /// 친구마다 놀러 보내기 항목 (항목, 보낼 컴퓨터 id)
+    pub sends: Vec<(MenuItem<Wry>, String)>,
+    /// 보내 주기 ▸ 와 그 안의 "정말 <이름> 보내 줄까요?" (펫이 둘 이상일 때만)
+    pub let_go: Option<(Submenu<Wry>, MenuItem<Wry>)>,
 }
 
 /// 메뉴에 보일 펫 이름: 한 마리면 동물 이름, 여럿이면 "첫째 고양이"처럼 차례를 붙임
@@ -329,78 +472,183 @@ pub fn own_pet_name(i: usize, count: usize, species_name: &str) -> String {
     }
 }
 
-/// 🐾🐾🐾 메뉴가 다룰 펫을 고름 (펫 창 라벨) — 우클릭한 펫, 누른 펫, 고른 펫 ▸
+/// 🐾🐾🐾 펫을 누르거나 우클릭하면 그 펫이 고른 펫이 됨 (밥 주기 ▸ 좋아하는 음식 글자, 배부를 때 그릇을 받는 펫).
+/// 게임 루프가 받아 적고 메뉴를 맞춤 — 여기서는 메뉴를 건드리지 않음 (메인 스레드·IPC에서 불려도 됨)
 pub fn pick(app: &AppHandle, label: &str) {
-    let state = app.state::<AppState>();
-    if !state.own.lock().unwrap().iter().any(|v| v.label == label) {
-        return;
-    }
-    *state.picked.lock().unwrap() = label.to_string();
-    sync_picked(app);
+    send(app, Input::PickPet(label.to_string()));
 }
 
-/// 🐾🐾🐾 🐾 내 펫 ▸ 을 고른 펫에 맞춤: 고른 펫 ▸ 체크, 성장 단계·성장 멈추기·키우기 체크·좋아하는 음식·흐물이 색,
-/// 펫 추가(꽉 차면 흐림)·보내 주기(한 마리뿐이거나 놀러 가 있으면 흐림). 고른 펫이 없어졌으면 첫 펫으로
-pub fn sync_picked(app: &AppHandle) {
+/// 펫 하위 메뉴 글자: "🐾 고양이" / 여럿이면 "🐾 첫째 고양이"
+fn pet_title(name: &str) -> String {
+    format!("🐾 {}", menu_text(name))
+}
+
+/// 종류 바꾸기 하위 메뉴 글자: 지금 동물 이름을 붙임
+fn kind_label(name: Option<&str>) -> String {
+    match name {
+        Some(n) => format!("종류: {}", menu_text(n)),
+        None => "종류 바꾸기".to_string(),
+    }
+}
+
+/// 보내 주기 ▸ 안의 "정말 …?" 글자
+fn let_go_label(name: &str) -> String {
+    format!("정말 {} 보내 줄까요? (키운 기록도 없어져요)", menu_text(name))
+}
+
+/// 이 펫의 하위 메뉴 모양 (펫 수·흐물이 여부·놀러 감·연결된 친구)
+fn pet_shape(pets: &[PetEntry], view: &OwnView, count: usize, friends: Option<&FriendsMenu>) -> PetShape {
+    let tintable = pets.iter().find(|p| p.id == view.species).is_some_and(|p| p.manifest.tint);
+    let friends = friends
+        .filter(|m| m.available)
+        .map(|m| m.friends.iter().filter(|f| f.connected).map(|f| (f.target.clone(), f.name.clone())).collect())
+        .unwrap_or_default();
+    PetShape { label: view.label.clone(), uid: view.uid.clone(), many: count > 1, tintable, away: view.away, friends }
+}
+
+/// 펫 하위 메뉴 하나를 만듦: 성장 단계 · 종류 ▸ · (🎨 흐물이 색 ▸) · 성장 멈추기 · 처음부터 다시 키우기 ▸ ·
+/// (🏡 집에 와) · 놀러 보내기 ▸ · (보내 주기 ▸). 글자·체크는 sync_pet_menu가 맞춤
+fn build_pet_menu(app: &AppHandle, pets: &[PetEntry], shape: PetShape, tint: BodyTint) -> tauri::Result<PetMenu> {
+    let label = shape.label.clone();
+    let sub = Submenu::new(app, "🐾", true)?;
+    let growth = MenuItem::new(app, "", false, None::<&str>)?;
+    sub.append(&growth)?;
+    let kind = Submenu::new(app, kind_label(None), true)?;
+    let mut species = Vec::new();
+    for p in pets {
+        let item = CheckMenuItem::with_id(app, format!("{KIND_PREFIX}{label}|{}", p.id), &p.manifest.name, true, false, None::<&str>)?;
+        kind.append(&item)?;
+        species.push((item, p.id.clone()));
+    }
+    sub.append(&kind)?;
+    let mut tints = Vec::new();
+    if shape.tintable {
+        let tint_menu = Submenu::new(app, "🎨 흐물이 색", true)?;
+        for t in BodyTint::ALL {
+            let item = CheckMenuItem::with_id(app, format!("{TINT_PREFIX}{label}|{}", t.id()), t.label(), true, t == tint, None::<&str>)?;
+            tint_menu.append(&item)?;
+            tints.push((item, t));
+        }
+        sub.append(&tint_menu)?;
+    }
+    let lock = CheckMenuItem::with_id(app, format!("{LOCK_PREFIX}{label}"), "성장 멈추기", true, false, None::<&str>)?;
+    let reset_item = MenuItem::with_id(app, format!("{RESET_PREFIX}{label}"), "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
+    let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
+    sub.append(&lock)?;
+    sub.append(&reset)?;
+    sub.append(&PredefinedMenuItem::separator(app)?)?;
+    if shape.away {
+        sub.append(&MenuItem::with_id(app, format!("{COME_HOME_PREFIX}{}", shape.uid), "🏡 집에 와", true, None::<&str>)?)?;
+    }
+    let send = Submenu::new(app, "놀러 보내기", false)?;
+    let mut sends = Vec::new();
+    for (target, name) in &shape.friends {
+        let item = MenuItem::with_id(app, format!("{PET_SEND_PREFIX}{}|{target}", shape.uid), menu_text(name), false, None::<&str>)?;
+        send.append(&item)?;
+        sends.push((item, target.clone()));
+    }
+    if shape.friends.is_empty() {
+        send.append(&MenuItem::new(app, "연결된 친구가 없어요", false, None::<&str>)?)?;
+    }
+    sub.append(&send)?;
+    let let_go = if shape.many {
+        let item = MenuItem::with_id(app, format!("{LET_GO_PREFIX}{label}"), let_go_label(""), true, None::<&str>)?;
+        let menu = Submenu::with_items(app, "보내 주기", true, &[&item])?;
+        sub.append(&PredefinedMenuItem::separator(app)?)?;
+        sub.append(&menu)?;
+        Some((menu, item))
+    } else {
+        None
+    };
+    Ok(PetMenu { shape, sub, growth, kind, species, tints, lock, send, sends, let_go })
+}
+
+/// 펫 하위 메뉴의 글자·체크·흐림을 지금 펫에 맞춤 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춤)
+fn sync_pet_menu(m: &PetMenu, view: &OwnView, pets: &[PetEntry], friends: Option<&FriendsMenu>, tint: BodyTint) {
+    let _ = m.sub.set_text(pet_title(&view.name));
+    let _ = m.growth.set_text(growth_label(view.stage, view.locked));
+    let species_name = pets.iter().find(|p| p.id == view.species).map(|p| p.manifest.name.as_str());
+    let _ = m.kind.set_text(kind_label(species_name));
+    for (item, id) in &m.species {
+        let _ = item.set_checked(*id == view.species);
+        // 친구 화면에 가 있거나 가는 중엔 바꾸지 않음
+        let _ = item.set_enabled(!view.busy);
+    }
+    for (item, t) in &m.tints {
+        let _ = item.set_checked(*t == tint);
+    }
+    let _ = m.lock.set_checked(view.locked);
+    // 놀러 보내기: 이 친구에게 지금 이 펫을 보낼 수 있을 때만 (옛 판 친구에겐 한 번에 한 마리만)
+    let pet_no = friends.and_then(|f| f.pets.iter().position(|(uid, _)| *uid == view.uid));
+    let mut any = false;
+    for (item, target) in &m.sends {
+        let can = friends
+            .and_then(|f| f.friends.iter().find(|x| x.target == *target))
+            .is_some_and(|x| match pet_no {
+                Some(i) => x.senders.get(i).copied().unwrap_or(false),
+                None => x.can_send,
+            });
+        any |= can;
+        let _ = item.set_enabled(can);
+    }
+    let _ = m.send.set_enabled(any);
+    if let Some((menu, item)) = &m.let_go {
+        let _ = menu.set_enabled(!view.busy);
+        let _ = item.set_text(let_go_label(&view.name));
+    }
+}
+
+/// 🐾🐾🐾 펫마다의 하위 메뉴를 지금 펫들에 맞춤 (게임 루프 스레드에서만 — 펫 모습·친구 목록이 바뀔 때).
+/// 모양(PetShape)이 바뀐 하위 메뉴만 새로 만들어 제자리에 끼우고, 나머지는 글자·체크·흐림만 바꿈 (열린 메뉴가 닫히지 않게).
+/// 잠금은 손잡이를 꺼내고 넣을 때만 잡음 — 메뉴 바꾸기는 메인 스레드를 기다리므로 잠금 밖에서 함. 맨 위 좋아하는 음식(고른 펫)·하우스·펫 추가도 맞춤
+pub fn sync_pets(app: &AppHandle) {
     let state = app.state::<AppState>();
     let views = state.own.lock().unwrap().clone();
-    let Some(first) = views.first() else { return };
-    let picked = {
-        let mut picked = state.picked.lock().unwrap();
-        if !views.iter().any(|v| v.label == *picked) {
-            *picked = first.label.clone();
-        }
-        picked.clone()
-    };
-    let Some(view) = views.iter().find(|v| v.label == picked) else { return };
+    if views.is_empty() {
+        return;
+    }
     let menu = &state.menu;
-    // 고른 펫 ▸: 펫 목록이 바뀌었을 때만 다시 채움 (열린 메뉴가 닫히지 않게)
-    let list: Vec<(String, String)> = views.iter().map(|v| (v.label.clone(), v.name.clone())).collect();
-    // (게임 루프와 우클릭이 같이 부를 수 있어 채우는 동안 목록을 잠가 둠 — 두 번 채워 겹치지 않게)
-    // 메뉴 바꾸기는 메인 스레드를 기다리므로 잠금은 놓고 채움 (먼저 새 목록으로 적어 두어 같은 목록을 두 번 채우지 않음)
-    let changed = {
-        let mut shown = menu.pick_list.lock().unwrap();
-        let changed = *shown != list;
-        if changed {
-            *shown = list.clone();
-        }
-        drop(shown);
-        changed
-    };
-    if changed {
-        if let Err(e) = fill_pick_menu(app, &menu.pick_menu, &list) {
-            eprintln!("failed to update the pick menu: {e}");
+    let friends = menu.friends_model.lock().unwrap().clone();
+    let tint = *menu.tint.lock().unwrap();
+    let old = menu.pet_menus.lock().unwrap().clone();
+    let same_count = old.len() == views.len();
+    if !same_count {
+        for m in &old {
+            let _ = menu.menu.remove(&m.sub);
         }
     }
-    for item in menu.pick_menu.items().unwrap_or_default() {
-        if let Some(check) = item.as_check_menuitem() {
-            let _ = check.set_checked(check.id().as_ref().strip_prefix(PICK_PREFIX) == Some(picked.as_str()));
+    let mut next = Vec::with_capacity(views.len());
+    for (i, view) in views.iter().enumerate() {
+        let shape = pet_shape(&state.pets, view, views.len(), friends.as_ref());
+        if let Some(m) = old.get(i).filter(|m| same_count && m.shape == shape) {
+            next.push(m.clone());
+            continue;
+        }
+        if same_count {
+            let _ = menu.menu.remove(&old[i].sub);
+        }
+        let built = build_pet_menu(app, &state.pets, shape, tint).and_then(|m| menu.menu.insert(&m.sub, PETS_POSITION + i).map(|_| m));
+        match built {
+            Ok(m) => next.push(m),
+            Err(e) => {
+                // 다음에 다시 (펫 수가 달라 모두 새로 만듦)
+                eprintln!("failed to build a pet menu: {e}");
+                break;
+            }
         }
     }
-    let _ = menu.pick_menu.set_text(format!("고른 펫: {}", menu_text(&view.name)));
+    for (m, view) in next.iter().zip(&views) {
+        sync_pet_menu(m, view, &state.pets, friends.as_ref(), tint);
+    }
+    *menu.pet_menus.lock().unwrap() = next;
+    sync_control(app, menu, &views);
+    let picked = state.picked.lock().unwrap().clone();
+    let view = views.iter().find(|v| v.label == picked).unwrap_or(&views[0]);
     if let Some(entry) = state.pets.iter().find(|p| p.id == view.species) {
         set_favorite_label(menu, &crate::game_loop::favorite_of(entry));
-        sync_tint_shown(menu, entry.manifest.tint);
-    }
-    let _ = menu.lock.set_checked(view.locked);
-    let _ = menu.growth.set_text(growth_label(view.stage, view.locked));
-    sync_pet_checks(menu, &view.species);
-    for (item, _) in &menu.pets {
-        let _ = item.set_enabled(!view.busy);
     }
     let _ = menu.house.set_enabled(!views.iter().all(|v| v.busy));
     let _ = menu.add_menu.set_enabled(views.len() < MAX_OWN_PETS);
-    let _ = menu.let_go.set_enabled(views.len() > 1 && !view.busy);
-    let _ = menu.let_go_item.set_text(format!("정말 {} 보내 줄까요? (키운 기록도 없어져요)", menu_text(&view.name)));
-}
-
-/// 고른 펫 ▸ 을 비우고 펫마다 체크 항목으로 다시 채움
-fn fill_pick_menu(app: &AppHandle, sub: &Submenu<Wry>, list: &[(String, String)]) -> tauri::Result<()> {
-    while sub.remove_at(0)?.is_some() {}
-    for (label, name) in list {
-        sub.append(&CheckMenuItem::with_id(app, format!("{PICK_PREFIX}{label}"), menu_text(name), true, false, None::<&str>)?)?;
-    }
-    Ok(())
 }
 
 /// 실제 날씨 항목 글자 (도시 이름 포함)
@@ -421,25 +669,12 @@ pub fn sync_weather_kind(menu: &TrayMenu, source: WeatherSource, place: Place) {
     }
 }
 
-/// 🎨 흐물이 색 체크를 지금 설정에 맞춤 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춤)
+/// 🎨 흐물이 색 체크를 지금 설정에 맞춤 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춤) — 흐물이 펫마다의 하위 메뉴 모두
 pub fn sync_tint(menu: &TrayMenu, tint: BodyTint) {
-    for (item, t) in &menu.tints {
+    *menu.tint.lock().unwrap() = tint;
+    let pet_menus = menu.pet_menus.lock().unwrap().clone();
+    for (item, t) in pet_menus.iter().flat_map(|m| &m.tints) {
         let _ = item.set_checked(*t == tint);
-    }
-}
-
-/// "🎨 흐물이 색"은 몸 색을 고를 수 있는 동물(pet.json tint)일 때만 🐾 내 펫 ▸ 스타일 아래에 있음
-pub fn sync_tint_shown(menu: &TrayMenu, tintable: bool) {
-    let shown = menu.my_pet.get(TINT_MENU_ID).is_some();
-    let res = if tintable && !shown {
-        menu.my_pet.insert(&menu.tint_menu, TINT_POSITION)
-    } else if !tintable && shown {
-        menu.my_pet.remove(&menu.tint_menu)
-    } else {
-        Ok(())
-    };
-    if let Err(e) = res {
-        eprintln!("failed to update the tint menu: {e}");
     }
 }
 
@@ -462,7 +697,7 @@ fn feed_mode_label(which: FeedMode, current: FeedMode) -> String {
     }
 }
 
-/// 집중 친구 메뉴를 실제 상태로 다시 맞춤 (체크 항목은 누를 때 스스로 뒤집힘)
+/// 🍅 뽀모도로 메뉴를 실제 상태로 다시 맞춤 (체크 항목은 누를 때 스스로 뒤집힘)
 pub fn sync_focus(menu: &TrayMenu, running: bool, length: FocusLength) {
     let _ = menu.focus.set_text(focus_label(running));
     let _ = menu.focus_toggle.set_checked(running);
@@ -473,9 +708,9 @@ pub fn sync_focus(menu: &TrayMenu, running: bool, length: FocusLength) {
 /// 집중 하위 메뉴 글자 (켜져 있으면 ✓)
 fn focus_label(running: bool) -> &'static str {
     if running {
-        "⏱️ 집중 친구 ✓"
+        "🍅 뽀모도로 ✓"
     } else {
-        "⏱️ 집중 친구"
+        "🍅 뽀모도로"
     }
 }
 
@@ -492,7 +727,8 @@ fn menu_text(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect::<String>().replace('&', "&&")
 }
 
-/// `👫 친구랑 놀기 ▸`을 다시 채움: 내 이름, 코드, 놀러 보내기 ▸, 친구별 하위 메뉴, 발견된 사람(누르면 친구 신청), 🎲 사다리타기 ▸ (+ 바깥 "집에 와" 넣고 빼기)
+/// `👫 친구랑 놀기 ▸`을 다시 채움: 내 이름, 코드, 🗑️ 던지기 ▸, 친구별 하위 메뉴, 발견된 사람(누르면 친구 신청), 🎲 사다리타기 ▸
+/// (+ 바깥 "🏡 집에 와" 넣고 빼기, 펫 하위 메뉴의 놀러 보내기 ▸)
 pub fn fill_friends(app: &AppHandle, model: &FriendsMenu) {
     let submenu = &app.state::<AppState>().menu.friends;
     if let Err(e) = try_fill_friends(app, submenu, model) {
@@ -501,6 +737,9 @@ pub fn fill_friends(app: &AppHandle, model: &FriendsMenu) {
     if let Err(e) = sync_come_home(app, model) {
         eprintln!("failed to update the come-home item: {e}");
     }
+    // 🐾🐾🐾 펫 하위 메뉴의 놀러 보내기 ▸ 도 (연결된 친구가 바뀌었으면 그 하위 메뉴만 새로 만듦)
+    *app.state::<AppState>().menu.friends_model.lock().unwrap() = Some(model.clone());
+    sync_pets(app);
 }
 
 /// 🍎 "⌨️ 타자 응원 — Mac 권한 켜기…"는 타자 응원이 켜져 있고 입력 모니터링 권한이 없을 때만 ⚙️ 설정에 있음
@@ -525,87 +764,53 @@ fn open_input_monitoring() {
     }
 }
 
-/// "집에 와"는 내 동물이 친구 화면에 가 있을 때만 메뉴에 있음 (🏠 하우스 바로 아래).
-/// 🐾🐾🐾 펫이 여럿이면 "🏡 집에 와 ▸" — 모두 집에 와 + 가 있는 펫마다
+/// "🏡 집에 와"는 내 펫이 친구 화면에 가 있을 때만 메뉴에 있음 (🏠 하우스 바로 아래 — 가 있는 펫 모두를 부름).
+/// 🐾🐾🐾 둘 이상 가 있으면 "🏡 모두 집에 와" (한 마리씩은 펫 하위 메뉴에서)
 fn sync_come_home(app: &AppHandle, model: &FriendsMenu) -> tauri::Result<()> {
     let menu = &app.state::<AppState>().menu;
-    let many = model.pets.len() > 1;
-    let away = !model.away.is_empty();
-    let item_shown = menu.menu.get(COME_HOME_ID).is_some();
-    let sub_shown = menu.menu.get(COME_HOME_MENU_ID).is_some();
-    if (!away || many) && item_shown {
-        menu.menu.remove(&menu.come_home)?;
-    }
-    if (!away || !many) && sub_shown {
-        menu.menu.remove(&menu.come_home_menu)?;
-    }
-    if away && !many && !item_shown {
-        menu.menu.insert(&menu.come_home, COME_HOME_POSITION)?;
-    }
-    if away && many {
-        let sub = &menu.come_home_menu;
-        while sub.remove_at(0)?.is_some() {}
-        sub.append(&MenuItem::with_id(app, COME_HOME_ALL_ID, "모두 집에 와", true, None::<&str>)?)?;
-        sub.append(&PredefinedMenuItem::separator(app)?)?;
-        for (uid, name) in &model.away {
-            sub.append(&MenuItem::with_id(app, format!("{COME_HOME_PREFIX}{uid}"), format!("{} 집에 와", menu_text(name)), true, None::<&str>)?)?;
+    let shown = menu.menu.get(COME_HOME_ID).is_some();
+    if model.away.is_empty() {
+        if shown {
+            menu.menu.remove(&menu.come_home)?;
         }
-        if !sub_shown {
-            menu.menu.insert(&menu.come_home_menu, COME_HOME_POSITION)?;
+        return Ok(());
+    }
+    menu.come_home.set_text(come_home_label(model.away.len()))?;
+    if !shown {
+        let house_at = menu.menu.items()?.iter().position(|item| item.id() == HOUSE_ID);
+        if let Some(at) = house_at {
+            menu.menu.insert(&menu.come_home, at + 1)?;
         }
     }
     Ok(())
 }
 
+/// 맨 위 "집에 와" 글자: 둘 이상 가 있으면 "모두 집에 와"
+pub fn come_home_label(away: usize) -> &'static str {
+    if away >= 2 {
+        "🏡 모두 집에 와"
+    } else {
+        "🏡 집에 와"
+    }
+}
+
 /// 친구 하위 메뉴를 비우고 지금 상태로 다시 채움
 fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu) -> tauri::Result<()> {
-    while submenu.remove_at(0)?.is_some() {}
+    // 🎮 놀기 ▸ 의 혼자 놀기 항목(PLAY_FIXED개)은 그대로 두고 그 아래 친구 묶음만 다시 채움
+    while submenu.remove_at(PLAY_FIXED)?.is_some() {}
+    submenu.append(&PredefinedMenuItem::separator(app)?)?;
+    submenu.append(&MenuItem::new(app, "👫 친구", false, None::<&str>)?)?;
     if !model.available {
         submenu.append(&MenuItem::new(app, "친구 찾기를 쓸 수 없어요", false, None::<&str>)?)?;
         return Ok(());
     }
-    // 친구들에게 보이는 내 이름 (누르면 바꾸기 창)
-    submenu.append(&MenuItem::with_id(app, MY_NAME_ID, format!("내 이름: {} ✏️", menu_text(&model.my_name)), true, None::<&str>)?)?;
     // 📱 한 번에 한 컴퓨터만 놂: 대기 중이면 알리고 이 컴퓨터로 가져올 수 있음
     if model.standby {
         submenu.append(&MenuItem::new(app, "📱 지금은 다른 컴퓨터에서 놀고 있어요", false, None::<&str>)?)?;
         submenu.append(&MenuItem::with_id(app, PLAY_HERE_ID, "📱 이 컴퓨터로 놀기", true, None::<&str>)?)?;
     }
-    if let Some(enabled) = model.bring_device {
-        submenu.append(&MenuItem::with_id(app, BRING_DEVICE_ID, "📱 다른 컴퓨터 펫 데리고 오기", enabled, None::<&str>)?)?;
-    }
-    // 인터넷 친구 (중계 서버): 상태 한 줄, 내 코드 보기, 코드 입력
-    let status = match model.relay {
-        Some(true) => "인터넷 연결: 연결됨",
-        Some(false) => "인터넷 연결: 끊김",
-        None => "인터넷 연결: 꺼짐",
-    };
-    submenu.append(&MenuItem::new(app, status, false, None::<&str>)?)?;
-    let relay_on = model.relay.is_some();
-    submenu.append(&MenuItem::with_id(app, SHOW_CODE_ID, "친구 코드 보기", relay_on, None::<&str>)?)?;
-    submenu.append(&MenuItem::with_id(app, ENTER_CODE_ID, "코드 입력…", relay_on, None::<&str>)?)?;
-    // 놀러 보내기 ▸ 연결된 친구 (펫 우클릭에서도 같은 메뉴)
+    // 놀러 보내기는 펫 하위 메뉴 (🐾 <펫> ▸ 놀러 보내기 ▸ 친구)와 친구 하위 메뉴에
     let online: Vec<&FriendItem> = model.friends.iter().filter(|f| f.connected).collect();
-    let send = Submenu::new(app, "놀러 보내기", online.iter().any(|f| f.can_send))?;
-    let many = model.pets.len() > 1;
-    for f in &online {
-        if many {
-            // 🐾🐾🐾 친구 ▸ 펫 고르기
-            send.append(&pet_choices(app, &menu_text(&f.name), model, f)?)?;
-        } else {
-            send.append(&MenuItem::with_id(app, format!("{SEND_LIST_PREFIX}{}", f.target), menu_text(&f.name), f.can_send, None::<&str>)?)?;
-        }
-    }
-    submenu.append(&send)?;
-    // 🗑️ 연결된 친구에게 쓰레기 10개 (연달아 눌러 다섯 번까지 쌓임)
-    // (대기 중인 내 다른 컴퓨터에는 던지지 않음 — 보낼 수 없는 곳)
-    let targets: Vec<&&FriendItem> = online.iter().filter(|f| f.can_throw).collect();
-    let throw = Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !targets.is_empty())?;
-    for f in targets {
-        throw.append(&MenuItem::with_id(app, format!("{THROW_VOLLEY_PREFIX}{}", f.target), menu_text(&f.name), true, None::<&str>)?)?;
-    }
-    submenu.append(&throw)?;
-    submenu.append(&PredefinedMenuItem::separator(app)?)?;
     for f in &model.friends {
         let dot = if f.connected { "●" } else { "○" };
         // 내 다른 컴퓨터는 이름 뒤에 붙여 보임 (친구의 다른 컴퓨터는 그 친구와 한 줄)
@@ -616,12 +821,17 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         };
         let [left, right, up, down] = visit::SIDE_CHOICES.map(|(side, key, label)| CheckMenuItem::with_id(app, format!("{SIDE_PREFIX}{key}:{}", f.id), label, true, f.side == side, None::<&str>));
         let (left, right, up, down) = (left?, right?, up?, down?);
-        let send: Box<dyn tauri::menu::IsMenuItem<Wry>> = if model.pets.len() > 1 {
-            Box::new(pet_choices(app, "놀러 보내기", model, f)?)
+        // 🐾🐾🐾 펫이 여럿이면 펫마다 "<펫> 보내기" (이 친구에게 지금 보낼 수 있는 펫만 누를 수 있음), 한 마리면 "놀러 보내기"
+        let sends: Vec<MenuItem<Wry>> = if model.pets.len() > 1 {
+            let mut list = Vec::new();
+            for (i, (uid, name)) in model.pets.iter().enumerate() {
+                let can = f.senders.get(i).copied().unwrap_or(false);
+                list.push(MenuItem::with_id(app, format!("{SEND_PET_PREFIX}{uid}|{}", f.target), format!("{} 보내기", menu_text(name)), can, None::<&str>)?);
+            }
+            list
         } else {
-            Box::new(MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.target), "놀러 보내기", f.can_send, None::<&str>)?)
+            vec![MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.target), "놀러 보내기", f.can_send, None::<&str>)?]
         };
-        let send = &*send;
         // 편지를 실어 보내기: "놀러 보내기"와 같은 때만 누를 수 있음
         let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.target), "편지 들려 보내기…", f.can_send, None::<&str>)?;
         let (bring_label, can_bring) = if f.visiting {
@@ -640,7 +850,12 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
         let sep = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
-        submenu.append(&Submenu::with_items(app, title, true, &[send, &letter, &bring, &sep, &left, &right, &up, &down, &sep2, &device, &nickname, &unfriend])?)?;
+        let friend = Submenu::new(app, title, true)?;
+        for item in &sends {
+            friend.append(item)?;
+        }
+        friend.append_items(&[&letter, &bring, &sep, &left, &right, &up, &down, &sep2, &device, &nickname, &unfriend])?;
+        submenu.append(&friend)?;
     }
     for (id, name) in &model.strangers {
         submenu.append(&MenuItem::with_id(app, format!("{INVITE_PREFIX}{id}"), format!("{} — 친구 신청", menu_text(name)), true, None::<&str>)?)?;
@@ -648,45 +863,36 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     if model.friends.is_empty() && model.strangers.is_empty() {
         submenu.append(&MenuItem::new(app, "같은 네트워크에 ScreenPet이 없어요", false, None::<&str>)?)?;
     }
-    submenu.append(&PredefinedMenuItem::separator(app)?)?;
+    // 🗑️ 연결된 친구에게 쓰레기 10개 (연달아 눌러 다섯 번까지 쌓임)
+    // (대기 중인 내 다른 컴퓨터에는 던지지 않음 — 보낼 수 없는 곳)
+    let targets: Vec<&&FriendItem> = online.iter().filter(|f| f.can_throw).collect();
+    let throw = Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !targets.is_empty())?;
+    for f in targets {
+        throw.append(&MenuItem::with_id(app, format!("{THROW_VOLLEY_PREFIX}{}", f.target), menu_text(&f.name), true, None::<&str>)?)?;
+    }
+    submenu.append(&throw)?;
     // 🎲 사다리타기 ▸ (사다리를 모르는 예전 판 친구는 설정 화면에서 흐리게 보임)
     let new_game = MenuItem::with_id(app, LADDER_ID, "새 사다리…", model.ladder.open, None::<&str>)?;
     let last = MenuItem::with_id(app, LADDER_LAST_ID, "지난 결과", model.ladder.last, None::<&str>)?;
     let invites = CheckMenuItem::with_id(app, LADDER_INVITES_ID, "초대 받기", true, model.ladder.invites, None::<&str>)?;
     submenu.append(&Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])?)?;
+    // 👫 내 이름·코드 ▸: 친구들에게 보이는 내 이름 (누르면 바꾸기 창), 인터넷 친구 (중계 서버) 상태 한 줄·내 코드 보기·코드 입력, 📱 다른 컴퓨터 펫
+    let me = Submenu::new(app, "👫 내 이름·친구 코드", true)?;
+    me.append(&MenuItem::with_id(app, MY_NAME_ID, format!("내 이름: {} ✏️", menu_text(&model.my_name)), true, None::<&str>)?)?;
+    let status = match model.relay {
+        Some(true) => "인터넷 연결: 연결됨",
+        Some(false) => "인터넷 연결: 끊김",
+        None => "인터넷 연결: 꺼짐",
+    };
+    me.append(&MenuItem::new(app, status, false, None::<&str>)?)?;
+    let relay_on = model.relay.is_some();
+    me.append(&MenuItem::with_id(app, SHOW_CODE_ID, "친구 코드 보기", relay_on, None::<&str>)?)?;
+    me.append(&MenuItem::with_id(app, ENTER_CODE_ID, "코드 입력…", relay_on, None::<&str>)?)?;
+    if let Some(enabled) = model.bring_device {
+        me.append(&MenuItem::with_id(app, BRING_DEVICE_ID, "📱 다른 컴퓨터 펫 데리고 오기", enabled, None::<&str>)?)?;
+    }
+    submenu.append(&me)?;
     Ok(())
-}
-
-/// 내 동물이 친구 화면에 놀러 갈 때 펫 고르기 (🐾🐾🐾 "놀러 보내기 ▸ <친구> ▸ 펫") — 펫마다 (이 친구에게 지금 보낼 수 있는 펫만 누를 수 있음)
-fn pet_choices(app: &AppHandle, title: &str, model: &FriendsMenu, f: &FriendItem) -> tauri::Result<Submenu<Wry>> {
-    let sub = Submenu::new(app, title, f.can_send)?;
-    for (i, (uid, name)) in model.pets.iter().enumerate() {
-        let can = f.senders.get(i).copied().unwrap_or(false);
-        sub.append(&MenuItem::with_id(app, format!("{SEND_PET_PREFIX}{uid}|{}", f.target), menu_text(name), can, None::<&str>)?)?;
-    }
-    Ok(sub)
-}
-
-/// 동물 고르기 체크를 지금 동물에 맞춤 (막힌 동안 눌렀을 때 되돌리기)
-pub fn sync_pet_checks(menu: &TrayMenu, current: &str) {
-    for (item, id) in &menu.pets {
-        let _ = item.set_checked(id == current);
-    }
-    set_pets_label(&menu.pets_menu, &menu.pets, current);
-}
-
-/// `키우기 ▸` 하위 메뉴 글자: 지금 동물 이름을 붙임
-fn pets_label(name: Option<&str>) -> String {
-    match name {
-        Some(n) => format!("키우기: {}", menu_text(n)),
-        None => "키우기".to_string(),
-    }
-}
-
-/// 동물 고르기 하위 메뉴 글자를 지금 동물 이름으로 바꿈
-fn set_pets_label(sub: &Submenu<Wry>, pets: &[(CheckMenuItem<Wry>, String)], current: &str) {
-    let name = pets.iter().find(|(_, id)| id == current).and_then(|(item, _)| item.text().ok());
-    let _ = sub.set_text(pets_label(name.as_deref()));
 }
 
 /// 하우스 항목 글자: 밖에 있으면 "🏠 하우스", 하우스 안(또는 가는 중)이면 "🏠 하우스에서 나오기"
@@ -802,24 +1008,16 @@ fn send(app: &AppHandle, input: Input) {
     app.state::<AppState>().send(input);
 }
 
-/// 트레이 메뉴 전체를 만듦 (동물·설정·네트워크 상태에 맞춘 처음 모습)
-#[allow(clippy::too_many_arguments)]
-pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode, dev: bool) -> tauri::Result<TrayMenu> {
-    // 🎨 흐물이 색 ▸ — 체크는 게임 루프가 설정으로 맞추고, 내 펫 안에 넣는 것도 게임 루프가 동물을 보고 함 (sync_tint_shown)
-    let tint_menu = Submenu::with_id(app, TINT_MENU_ID, "🎨 흐물이 색", true)?;
-    let mut tints = Vec::new();
-    for tint in BodyTint::ALL {
-        let item = CheckMenuItem::with_id(app, format!("{TINT_PREFIX}{}", tint.id()), tint.label(), true, tint.is_default(), None::<&str>)?;
-        tint_menu.append(&item)?;
-        tints.push((item, tint));
-    }
-    let mut checks: Vec<(CheckMenuItem<Wry>, String)> = Vec::new();
-    let pets_menu = Submenu::new(app, pets_label(pets.iter().find(|p| p.id == current).map(|p| p.manifest.name.as_str())), true)?;
-    for p in pets {
-        let item = CheckMenuItem::with_id(app, format!("pet:{}", p.id), &p.manifest.name, true, p.id == current, None::<&str>)?;
-        pets_menu.append(&item)?;
-        checks.push((item, p.id.clone()));
-    }
+/// 펫 하위 메뉴에서 누른 항목: 그 펫을 고른 뒤 할 일을 보냄 (게임 루프는 입력을 차례로 처리하므로 그 펫에게 감)
+fn send_to_pet(app: &AppHandle, label: &str, input: Input) {
+    send(app, Input::PickPet(label.to_string()));
+    send(app, input);
+}
+
+/// 트레이 메뉴 전체를 만듦 (설정·네트워크 상태에 맞춘 처음 모습 — 펫 하위 메뉴·🎮 조작은 게임 루프가 펫 목록으로 끼움 (sync_pets)).
+/// 나무는 docs/superpowers/specs/2026-11-26-tray-menu.md: danni | 펫마다 ▸ · 🐾 펫 추가 ▸ | 🍚 밥 주기 ▸ · 🏠 하우스 · (🏡 집에 와) · 🎮 조작 ·
+/// 🙈 숨기기 · 🍅 뽀모도로 ▸ | 🎮 놀기 ▸ (혼자 + 👫 친구) | ⚙️ 설정 ▸ · ℹ️ 도움말·건의 ▸ | 🔄 새로고침 · ♻️ 재시작 · 🚪 종료
+pub fn build(app: &AppHandle, pets: &[PetEntry], favorite: &FavoriteFood, housed: bool, feed_mode: FeedMode, dev: bool) -> tauri::Result<TrayMenu> {
     // 밥·좋아하는 음식·특식은 많이, 간식은 조금 자라게 함. 간식·물은 언제든 (배불러도) 받음
     // 방법을 고르고 음식을 고르는 걸 한 번에 (메뉴는 누르면 닫히므로): 손으로 주기 ▸ 음식 / 그릇에 주기 ▸ 음식.
     // 손으로: 음식이 커서 끝에 붙어 동물 입에 갖다 대면 먹음. 그릇에: 그릇이 놓임. 물은 늘 물그릇
@@ -839,17 +1037,12 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let fav_auto = favs.pop().expect("auto favorite");
     let fav_hand = favs.pop().expect("hand favorite");
     let feed = Submenu::with_items(app, "🍚 밥 주기", true, &[&hand_mode, &auto_mode, &PredefinedMenuItem::separator(app)?, &water])?;
-    let growth = MenuItem::new(app, growth_label(care.stage, care.locked), false, None::<&str>)?;
-    let lock = CheckMenuItem::with_id(app, "lock", "성장 멈추기", true, care.locked, None::<&str>)?;
-    let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
-    let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
-    let house = MenuItem::with_id(app, "house", house_label(housed), true, None::<&str>)?;
-    // 방향키로 내 동물 움직이기 (친구 화면에 가 있어도). 키는 읽기만 해서 앞에 있는 창에도 그대로 입력됨 — 켤 때 말풍선으로 알림
-    let control = CheckMenuItem::with_id(app, CONTROL_ID, CONTROL_LABEL, true, false, None::<&str>)?;
+    let house = MenuItem::with_id(app, HOUSE_ID, house_label(housed), true, None::<&str>)?;
     let weather = CheckMenuItem::with_id(app, WEATHER_ID, "🌨️ 날씨 효과", true, false, None::<&str>)?;
     // ☀️ 실제 날씨는 중계 서버가 30분마다 받아 오는 고른 도시의 날씨 (real_weather.rs) — 게임 루프가 설정으로 체크를 맞춤
     let weather_real = CheckMenuItem::with_id(app, WEATHER_REAL_ID, weather_real_label(Place::default()), true, true, None::<&str>)?;
     let weather_season = CheckMenuItem::with_id(app, WEATHER_SEASON_ID, "📅 계절 날씨", true, false, None::<&str>)?;
+    // 📍 날씨 지역 ▸ 은 날씨 종류 ▸ 옆 (⚙️ 설정 바로 아래 — 메뉴 깊이 둘까지)
     let places_menu = Submenu::new(app, "📍 날씨 지역", true)?;
     let mut places = Vec::new();
     for place in Place::ALL {
@@ -865,8 +1058,6 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         weather_kind.append(&item)?;
         weather_manual.push((item, source));
     }
-    weather_kind.append(&PredefinedMenuItem::separator(app)?)?;
-    weather_kind.append(&places_menu)?;
     let broom = CheckMenuItem::with_id(app, BROOM_ID, "🧹 빗자루", true, false, None::<&str>)?;
     let cursor_play = CheckMenuItem::with_id(app, CURSOR_PLAY_ID, CURSOR_PLAY_LABEL, true, true, None::<&str>)?;
     let poop = CheckMenuItem::with_id(app, POOP_ID, POOP_LABEL, true, true, None::<&str>)?;
@@ -878,32 +1069,31 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let focus = Submenu::with_items(app, focus_label(false), true, &[&focus_toggle, &PredefinedMenuItem::separator(app)?, &focus_short, &focus_long])?;
     let timeline = MenuItem::with_id(app, TIMELINE_ID, "🕐 최근 한 시간", true, None::<&str>)?;
     let dodge = MenuItem::with_id(app, DODGE_ID, "💩 똥피하기", true, None::<&str>)?;
-    let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", true, None::<&str>)?;
-    // 🐾🐾🐾 펫이 여럿일 때 "집에 와" 대신 (게임 루프가 가 있는 펫으로 채움)
-    let come_home_menu = Submenu::with_id(app, COME_HOME_MENU_ID, "🏡 집에 와", true)?;
-    // 🐾🐾🐾 고른 펫 ▸ (게임 루프가 펫 목록으로 채움), 🐾 펫 추가 ▸ 동물들, 펫 보내 주기 ▸ 정말?
-    let pick_menu = Submenu::with_id(app, PICK_MENU_ID, "고른 펫", true)?;
+    // 놀러 가 있는 펫이 있을 때만 하우스 아래에 끼어듦 (sync_come_home — 둘 이상이면 "모두 집에 와")
+    let come_home = MenuItem::with_id(app, COME_HOME_ID, come_home_label(1), true, None::<&str>)?;
+    // 🐾 펫 추가 ▸ 동물들 (꽉 차면 흐림)
     let add_menu = Submenu::new(app, "🐾 펫 추가", true)?;
     for p in pets {
         add_menu.append(&MenuItem::with_id(app, format!("{ADD_PET_PREFIX}{}", p.id), &p.manifest.name, true, None::<&str>)?)?;
     }
-    let let_go_item = MenuItem::with_id(app, LET_GO_ID, "정말 보내 줄까요? (키운 기록도 없어져요)", true, None::<&str>)?;
-    let let_go = Submenu::with_items(app, "펫 보내 주기", false, &[&let_go_item])?;
-    // 게임 루프가 네트워크를 시작한 뒤 채움
-    let friends = Submenu::with_items(app, "👫 친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
-    let toggle = MenuItem::with_id(app, "toggle", toggle_label(false), true, None::<&str>)?;
-    let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
+    let toggle = MenuItem::with_id(app, TOGGLE_ID, toggle_label(false), true, None::<&str>)?;
+    let help = MenuItem::with_id(app, "help", "❓ 도움말", true, None::<&str>)?;
     let feedback = MenuItem::with_id(app, FEEDBACK_ID, "💌 개발자에게 건의하기…", true, None::<&str>)?;
     let board = MenuItem::with_id(app, BOARD_ID, board_label(0), true, None::<&str>)?;
     let mailbox = dev.then(|| board.clone());
-    let update = MenuItem::with_id(app, UPDATE_ID, "🔄 업데이트", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
+    let update = MenuItem::with_id(app, UPDATE_ID, "⬆️ 업데이트", true, None::<&str>)?;
+    let refresh = MenuItem::with_id(app, REFRESH_ID, "🔄 새로고침", true, None::<&str>)?;
+    let restart = MenuItem::with_id(app, RESTART_ID, "♻️ 재시작", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "🚪 종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
-    let my_pet = Submenu::with_items(app, "🐾 내 펫", true, &[&pick_menu, &growth, &timeline, &pets_menu, &lock, &reset, &PredefinedMenuItem::separator(app)?, &add_menu, &let_go])?;
     let objects_menu = crate::objects::build_menu(app)?;
     // 🚗 탈것 꺼내기 ▸ (vehicles.rs)
     let vehicles_menu = crate::vehicles::build_menu(app)?;
-    let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &vehicles_menu, &dodge])?;
+    // 🎮 놀기 ▸ = 혼자 놀기 (PLAY_FIXED개) + 친구 묶음 (게임 루프가 네트워크를 시작한 뒤 fill_friends가 채움). 🎮 조작은 맨 위 (sync_control)
+    let play = Submenu::with_items(app, "🎮 놀기", true, &[&broom, &objects_menu, &vehicles_menu, &dodge, &timeline])?;
+    play.append(&PredefinedMenuItem::separator(app)?)?;
+    play.append(&MenuItem::new(app, "👫 친구를 찾는 중…", false, None::<&str>)?)?;
+    let friends = play.clone();
     let sizes = MenuItem::with_id(app, SIZES_ID, "📏 크기 조절…", true, None::<&str>)?;
     let opacity = MenuItem::with_id(app, OPACITY_ID, "👻 투명도…", true, None::<&str>)?;
     // 처음엔 켜져 있음 — 게임 루프가 설정(처음이면 켜기)으로 다시 맞춤
@@ -911,36 +1101,39 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let lumos_light = CheckMenuItem::with_id(app, LUMOS_LIGHT_ID, LUMOS_LIGHT_LABEL, true, false, None::<&str>)?;
     // 📊 처음엔 꺼져 있음 — 게임 루프가 설정(답했으면 그 답)으로 다시 맞춤
     let pet_stats = CheckMenuItem::with_id(app, STATS_ID, STATS_LABEL, true, false, None::<&str>)?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &lumos_light, &autostart, &pet_stats])?;
+    let sep = || PredefinedMenuItem::separator(app);
+    let (s1, s2, s3) = (sep()?, sep()?, sep()?);
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &places_menu, &s1, &poop, &cursor_play, &typing_cheer, &lumos_light, &s2, &sizes, &opacity, &s3, &autostart, &pet_stats])?;
+    // ℹ️ 도움말·건의 ▸ (📊 펫 통계는 개발자 컴퓨터에만 — 📮 건의함 바로 밑)
+    let info = Submenu::with_items(app, "ℹ️ 도움말·건의", true, &[&help, &feedback, &board])?;
+    if dev {
+        info.append(&MenuItem::with_id(app, STATS_VIEW_ID, "📊 펫 통계", true, None::<&str>)?)?;
+    }
+    info.append(&update)?;
 
-    // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어듦 (COME_HOME_POSITION)
+    // 트레이와 펫 우클릭은 같은 메뉴. 펫 하위 메뉴는 PETS_POSITION부터 (sync_pets), "집에 와"는 놀러 가 있을 때만 하우스 아래 (sync_come_home),
+    // 🎮 조작은 숨기기 바로 위 (sync_control)
     let menu = Menu::new(app)?;
     menu.append(&easter_egg)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&my_pet)?;
+    menu.append(&add_menu)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&feed)?;
     menu.append(&house)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&friends)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&play)?;
+    menu.append(&toggle)?;
     menu.append(&focus)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&play)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&settings)?;
-    menu.append(&toggle)?;
-    menu.append(&feedback)?;
-    menu.append(&board)?;
-    // 📊 펫 통계는 개발자 컴퓨터에만 (📮 건의함 바로 밑)
-    if dev {
-        menu.append(&MenuItem::with_id(app, STATS_VIEW_ID, "📊 펫 통계", true, None::<&str>)?)?;
-    }
-    menu.append(&help)?;
-    menu.append(&update)?;
+    menu.append(&info)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&refresh)?;
+    menu.append(&restart)?;
     menu.append(&quit)?;
 
-    let pet_items = checks.clone();
-    let pets_menu_handle = pets_menu.clone();
-    // 트레이의 메뉴 이벤트 처리기는 앱 전체용이라 우클릭(popup_menu)으로 띄운 같은 메뉴도 여기로 옴
+    // 트레이의 메뉴 이벤트 처리기는 앱 전체용이라 우클릭(popup_menu)으로 띄운 같은 메뉴도 여기로 옴.
+    // 메인 스레드: 입력만 보냄 (메뉴를 바꾸면 메인 스레드가 스스로를 기다릴 수 있음 — 메뉴는 게임 루프가 맞춤)
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle icon"))
         .tooltip("ScreenPet")
@@ -952,7 +1145,14 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     app.exit(0);
                 }
             }
-            "toggle" => toggle_windows(app),
+            // 종료처럼 저장한 뒤 다시 띄움 (루프가 없으면 바로)
+            RESTART_ID => {
+                if app.state::<AppState>().tx.lock().unwrap().send(Input::Restart).is_err() {
+                    app.request_restart();
+                }
+            }
+            REFRESH_ID => send(app, Input::Refresh),
+            TOGGLE_ID => toggle_windows(app),
             "help" => send(app, Input::ShowHelp),
             FEEDBACK_ID => send(app, Input::ShowFeedback),
             MAILBOX_ID => send(app, Input::ShowMailbox),
@@ -964,9 +1164,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             TIMELINE_ID => send(app, Input::ShowTimeline),
             DODGE_ID => send(app, Input::ShowDodge),
             "feed:water" => send(app, Input::Feed { food: Food::Water, label: None }),
-            "lock" => send(app, Input::ToggleLock),
-            "house" => send(app, Input::ToggleHouse),
-            CONTROL_ID => send(app, Input::ToggleControl),
+            HOUSE_ID => send(app, Input::ToggleHouse),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
             TYPING_CHEER_ID => send(app, Input::ToggleTypingCheer),
             TYPING_PERMISSION_ID => open_input_monitoring(),
@@ -981,7 +1179,6 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             FOCUS_TOGGLE_ID => send(app, Input::ToggleFocus),
             FOCUS_SHORT_ID => send(app, Input::SetFocusLength(FocusLength::Short)),
             FOCUS_LONG_ID => send(app, Input::SetFocusLength(FocusLength::Long)),
-            "reset" => send(app, Input::ResetGrowth),
             other if crate::objects::handle_menu(app, other) => {}
             other if crate::vehicles::handle_menu(app, other) => {}
             other => {
@@ -998,21 +1195,29 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::PlayHere);
                 } else if other == BRING_DEVICE_ID {
                     net(NetInput::BringDevicePet);
-                } else if other == COME_HOME_ID || other == COME_HOME_ALL_ID {
+                } else if other == COME_HOME_ID {
                     net(NetInput::ComeHome(None));
                 } else if let Some(uid) = other.strip_prefix(COME_HOME_PREFIX) {
                     net(NetInput::ComeHome(Some(uid.to_string())));
-                } else if let Some((uid, id)) = other.strip_prefix(SEND_PET_PREFIX).and_then(|r| r.split_once('|')) {
+                } else if let Some((uid, id)) = other.strip_prefix(SEND_PET_PREFIX).or_else(|| other.strip_prefix(PET_SEND_PREFIX)).and_then(|r| r.split_once('|')) {
                     send(app, Input::SendPet { uid: uid.to_string(), friend: id.to_string() });
-                } else if let Some(label) = other.strip_prefix(PICK_PREFIX) {
-                    // 메인 스레드: 메뉴는 게임 루프가 맞춤 (여기서 메뉴를 다시 채우면 메인 스레드를 스스로 기다릴 수 있음)
-                    send(app, Input::PickPet(label.to_string()));
+                } else if let Some((label, id)) = other.strip_prefix(KIND_PREFIX).and_then(|r| r.split_once('|')) {
+                    // 🐾🐾🐾 그 펫의 종류를 바꿈 (체크는 게임 루프가 다시 맞춤 — 누른 항목은 스스로 뒤집힘)
+                    if let Some(entry) = app.state::<AppState>().pets.iter().find(|p| p.id == id).cloned() {
+                        send_to_pet(app, label, Input::SetPet { entry, remote: false });
+                    }
+                } else if let Some(label) = other.strip_prefix(CONTROL_PREFIX) {
+                    send_to_pet(app, label, Input::ToggleControl);
+                } else if let Some(label) = other.strip_prefix(LOCK_PREFIX) {
+                    send_to_pet(app, label, Input::ToggleLock);
+                } else if let Some(label) = other.strip_prefix(RESET_PREFIX) {
+                    send_to_pet(app, label, Input::ResetGrowth);
+                } else if let Some(label) = other.strip_prefix(LET_GO_PREFIX) {
+                    send_to_pet(app, label, Input::RemovePet);
                 } else if let Some(id) = other.strip_prefix(ADD_PET_PREFIX) {
                     if let Some(entry) = app.state::<AppState>().pets.iter().find(|p| p.id == id).cloned() {
                         send(app, Input::AddPet(entry));
                     }
-                } else if other == LET_GO_ID {
-                    send(app, Input::RemovePet);
                 } else if other == LADDER_ID {
                     net(NetInput::LadderOpen);
                 } else if other == LADDER_LAST_ID {
@@ -1025,7 +1230,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::EnterCode);
                 } else if other == MY_NAME_ID {
                     net(NetInput::EditMyName);
-                } else if let Some(id) = other.strip_prefix(SEND_PREFIX).or_else(|| other.strip_prefix(SEND_LIST_PREFIX)) {
+                } else if let Some(id) = other.strip_prefix(SEND_PREFIX) {
                     net(NetInput::SendTo(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(LETTER_PREFIX) {
                     net(NetInput::EditLetter(id.to_string()));
@@ -1055,18 +1260,48 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     send(app, Input::SetWeatherSource(source));
                 } else if let Some(place) = other.strip_prefix(WEATHER_PLACE_PREFIX).and_then(Place::from_id) {
                     send(app, Input::SetWeatherPlace(place));
-                } else if let Some(tint) = other.strip_prefix(TINT_PREFIX).and_then(BodyTint::from_id) {
+                } else if let Some(tint) = other.strip_prefix(TINT_PREFIX).and_then(|r| r.split_once('|')).and_then(|(_, t)| BodyTint::from_id(t)) {
+                    // 색은 하나 (흐물이 펫 모두) — 체크는 게임 루프가 다시 맞춤
                     send(app, Input::SetTint(tint));
-                } else if let Some(id) = other.strip_prefix("pet:") {
-                    // 체크된 항목을 다시 누르면 체크가 풀리므로 항상 다시 맞춤
-                    for (item, pid) in &checks {
-                        let _ = item.set_checked(pid == id);
-                    }
-                    set_pets_label(&pets_menu_handle, &checks, id);
-                    crate::select_pet(app, id);
                 }
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, lumos_light, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, my_pet, tint_menu, tints, mailbox, autostart, pet_stats, update, friends, come_home, come_home_menu, pick_menu, add_menu, let_go, let_go_item, pick_list: Default::default(), hand_mode, auto_mode, toggle: toggle.clone() })
+    Ok(TrayMenu {
+        menu,
+        favorite: [fav_hand, fav_auto],
+        house,
+        cursor_play,
+        typing_cheer,
+        typing_permission,
+        settings,
+        poop,
+        lumos_light,
+        weather,
+        weather_real,
+        weather_season,
+        weather_manual,
+        places,
+        broom,
+        focus,
+        focus_toggle,
+        focus_short,
+        focus_long,
+        pet_menus: Default::default(),
+        friends_model: Default::default(),
+        tint: Default::default(),
+        mailbox,
+        autostart,
+        pet_stats,
+        update,
+        friends,
+        info,
+        bell: Default::default(),
+        control: Default::default(),
+        come_home,
+        add_menu,
+        hand_mode,
+        auto_mode,
+        toggle: toggle.clone(),
+    })
 }

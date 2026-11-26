@@ -456,6 +456,22 @@ impl Slot {
         self.last_pos = Some(pos);
     }
 
+    /// 🔄 새로고침·💤 깨어남: 웹뷰를 다시 읽고 (그림을 잃은 WebView2를 되살림 — 새 페이지는 slot_info로 지금 모습을 받음),
+    /// 창을 숨겼다가 다음 place에서 제자리에 다시 보임 (화면 위에 있어야 할 때만). 펼친 편지는 접음 (새 페이지엔 없음)
+    pub fn reload_view(&mut self) {
+        self.set_note_open(false);
+        let _ = self.window.reload();
+        self.forget_sent();
+        crate::overlay::hide_quietly(&self.window);
+        self.need_show = true;
+    }
+
+    /// 웹뷰에 보낸 자리·모습을 잊음: 다음 place·take_render가 지금 것을 다시 보냄 (다시 읽은 페이지가 놓쳤을 수 있음)
+    pub fn forget_sent(&mut self) {
+        self.last_pos = None;
+        self.last_render = None;
+    }
+
     /// 창 왼쪽 위 (물리 px): 몸이 창 아래 가운데에 오도록
     fn window_target(&self) -> (i32, i32) {
         let (_, sy) = self.pet.window_pos();

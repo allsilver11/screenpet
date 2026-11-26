@@ -67,8 +67,8 @@ def test_choosing_adding_and_changing_are_counted():
 
 
 def test_the_stats_window_is_for_the_developer_only():
-    assert 'menu.append(&MenuItem::with_id(app, STATS_VIEW_ID, "📊 펫 통계", true, None::<&str>)?)?;' in TRAY
-    assert TRAY.index("if dev {\n        menu.append(&MenuItem::with_id(app, STATS_VIEW_ID") > 0
+    assert 'info.append(&MenuItem::with_id(app, STATS_VIEW_ID, "📊 펫 통계", true, None::<&str>)?)?;' in TRAY
+    assert TRAY.index("if dev {\n        info.append(&MenuItem::with_id(app, STATS_VIEW_ID") > 0
     assert "STATS_VIEW_ID => send(app, Input::ShowPetStats)," in TRAY
     assert "NetInput::StatsList => match (&self.net, self.mailbox.enabled()) {" in NET
     assert "NetEvent::PetStats { result } => crate::pet_stats::result(app, result)," in NET

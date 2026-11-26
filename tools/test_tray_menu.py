@@ -1,4 +1,4 @@
-"""트레이·우클릭 메뉴 배치 (사용자가 정한 2026-11-05 구성). 메뉴를 옮기면 도움말 경로도 같이 옮긴다."""
+"""트레이·우클릭 메뉴 배치 (사용자가 정한 2026-11-05 구성, 2026-11-26 개편: 펫마다 하위 메뉴, 깊이 둘까지). 메뉴를 옮기면 도움말 경로도 같이 옮긴다."""
 import re
 from pathlib import Path
 
@@ -9,30 +9,50 @@ HELP = (ROOT / "ui" / "help.html").read_text(encoding="utf-8")
 
 def test_top_level_order():
     build = TRAY[TRAY.index("let menu = Menu::new(app)?;") :]
-    build = build[: build.index("let pet_items")]
+    build = build[: build.index("TrayIconBuilder::with_id")]
     items = re.findall(r"menu\.append\(&(?:PredefinedMenuItem::(separator)\(app\)\?|([a-z_]+))\)", build)
     names = [sep or name for sep, name in items]
-    assert names == ["easter_egg", "separator", "my_pet", "feed", "house", "separator", "friends", "separator", "play", "focus", "separator", "settings", "toggle", "feedback", "board", "help", "update", "quit"]
-    # 📮 건의함은 누구나, 건의하기 바로 밑 (개발자 컴퓨터에서는 개발자 건의함을 연다)
-    assert "menu.append(&feedback)?;\n    menu.append(&board)?;" in build
+    # 펫 하위 메뉴는 게임 루프가 danni·구분선 다음(PETS_POSITION)에 펫마다 끼움 — 그 아래 펫 추가·밥·하우스
+    # 나무는 docs/superpowers/specs/2026-11-26-tray-menu.md — 🏡 집에 와(놀러 갔을 때)는 하우스 아래, 🎮 조작은 숨기기 위에 게임 루프가 끼움
+    assert names == ["easter_egg", "separator", "add_menu", "separator", "feed", "house", "toggle", "focus", "separator", "play", "separator", "settings", "info", "separator", "refresh", "restart", "quit"]
+    assert "const PETS_POSITION: usize = 2;" in TRAY and "menu.menu.insert(&m.sub, PETS_POSITION + i)" in TRAY
+    # 📮 건의함은 누구나, 건의하기 바로 밑 (개발자 컴퓨터에서는 개발자 건의함을 연다) — ℹ️ 도움말·건의 ▸ 안
+    assert 'Submenu::with_items(app, "ℹ️ 도움말·건의", true, &[&help, &feedback, &board])' in TRAY
+    assert "menu.append(&play)?;" in build and '"👫 친구랑 놀기"' not in TRAY, "one play menu holds solo and friend play"
 
 
 def test_submenus_hold_what_was_decided():
-    assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&pick_menu, &growth, &timeline, &pets_menu, &lock, &reset, &PredefinedMenuItem::separator(app)?, &add_menu, &let_go])' in TRAY
+    # 🐾 펫마다: 성장 단계 · 종류 ▸ · (🎨 흐물이 색 ▸) · 🎮 조작 · 성장 멈추기 · 처음부터 다시 키우기 ▸ · (🏡 집에 와) · 놀러 보내기 ▸ · (보내 주기 ▸)
+    pet = TRAY[TRAY.index("fn build_pet_menu(") :]
+    pet = pet[: pet.index("\n}\n")]
+    order = ["sub.append(&growth)?", "sub.append(&kind)?", '"🎨 흐물이 색"', "sub.append(&lock)?", "sub.append(&reset)?", '"🏡 집에 와"', "sub.append(&send)?", '"보내 주기"']
+    positions = [pet.index(x) for x in order]
+    assert positions == sorted(positions)
+    assert "if shape.tintable {" in pet and "if shape.away {" in pet and "if shape.many {" in pet
+    # 펫 고르기(고른 펫 ▸)는 없어짐: 누른 항목이 그 펫 라벨을 들고 감
+    assert "PICK_PREFIX" not in TRAY and "고른 펫:" not in TRAY and "pick_menu" not in TRAY
     # 🟦 스타일(동글/픽셀)과 🎁 선물 도감은 v0.7.0에 빠짐
     assert '"스타일"' not in TRAY and "style_pixel" not in TRAY and "gift" not in TRAY.lower() and "선물" not in TRAY
-    assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &vehicles_menu, &dodge])' in TRAY
-    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &lumos_light, &autostart, &pet_stats])' in TRAY
+    assert 'Submenu::with_items(app, "🎮 놀기", true, &[&broom, &objects_menu, &vehicles_menu, &dodge, &timeline])' in TRAY
+    assert "play.append(&PredefinedMenuItem::separator(app)?)?;" in TRAY and "const PLAY_FIXED: usize = 5;" in TRAY
+    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &places_menu, &s1, &poop, &cursor_play, &typing_cheer, &lumos_light, &s2, &sizes, &opacity, &s3, &autostart, &pet_stats])' in TRAY
+    assert "const TYPING_PERMISSION_POSITION: usize = 7;" in TRAY
     assert 'Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])' in TRAY
-    assert '"🍚 밥 주기"' in TRAY and '"👫 친구랑 놀기"' in TRAY and '"🏠 하우스"' in TRAY
+    assert '"🍚 밥 주기"' in TRAY and '"👫 친구"' in TRAY and '"🏠 하우스"' in TRAY and '"🍅 뽀모도로"' in TRAY and '"🚪 종료"' in TRAY
+    assert "집중 친구" not in TRAY
 
 
 def test_friends_menu_order():
     fill = TRAY[TRAY.index("fn try_fill_friends") :]
-    fill = fill[: fill.index("/// 내 동물이 친구 화면에")]
-    order = ["MY_NAME_ID", "인터넷 연결: 연결됨", "SHOW_CODE_ID", "ENTER_CODE_ID", '"놀러 보내기", online', "for f in &model.friends", "for (id, name) in &model.strangers", '"🎲 사다리타기"']
+    fill = fill[: fill.index("/// 하우스 항목 글자")]
+    # 🎮 놀기 ▸ 의 혼자 놀기 아래: 👫 친구 · 친구마다 ▸ · 친구 신청 · 🗑️ 던지기 ▸ · 🎲 사다리타기 ▸ · 👫 내 이름·친구 코드 ▸
+    assert "while submenu.remove_at(PLAY_FIXED)?.is_some() {}" in fill
+    order = ['"👫 친구"', "for f in &model.friends", "for (id, name) in &model.strangers", '"🗑️ 쓰레기 10개 던지기"', '"🎲 사다리타기"', '"👫 내 이름·친구 코드"', "MY_NAME_ID", "인터넷 연결: 연결됨", "SHOW_CODE_ID", "ENTER_CODE_ID"]
     positions = [fill.index(x) for x in order]
     assert positions == sorted(positions)
+    # 놀러 보내기 ▸ 친구 목록은 펫 하위 메뉴로 옮김 (친구 ▸ 놀러 보내기 ▸ 펫 처럼 셋째 단계도 없음 — 펫마다 "<펫> 보내기")
+    assert 'Submenu::new(app, "놀러 보내기", online' not in fill and "pet_choices" not in TRAY and "SEND_LIST_PREFIX" not in TRAY
+    assert 'format!("{} 보내기", menu_text(name))' in fill
 
 
 def test_relay_status_line_is_shown_in_the_friends_menu():
@@ -46,12 +66,17 @@ def test_relay_status_line_is_shown_in_the_friends_menu():
 
 
 def test_help_item_label():
-    assert 'MenuItem::with_id(app, "help", "도움말 ❓", true' in TRAY
+    assert 'MenuItem::with_id(app, "help", "❓ 도움말", true' in TRAY
 
 
 def test_come_home_only_while_away_and_right_under_the_house():
-    assert "menu.menu.insert(&menu.come_home, COME_HOME_POSITION)" in TRAY and "menu.menu.remove(&menu.come_home)" in TRAY
-    assert "const COME_HOME_POSITION: usize = 5;" in TRAY  # danni, 구분선, 내 펫, 밥, 하우스 다음
+    sync = TRAY[TRAY.index("fn sync_come_home(") :]
+    sync = sync[: sync.index("\n}\n")]
+    assert "menu.menu.insert(&menu.come_home, at + 1)" in sync and "menu.menu.remove(&menu.come_home)" in sync
+    assert "item.id() == HOUSE_ID" in sync
+    # "모두 집에 와"는 둘 이상 가 있을 때만 (한 마리씩은 펫 하위 메뉴의 🏡 집에 와)
+    label = TRAY[TRAY.index("pub fn come_home_label(") :]
+    assert "away >= 2" in label[: label.index("\n}\n")] and '"🏡 모두 집에 와"' in label
 
 
 def test_repair_is_gone():
@@ -59,8 +84,9 @@ def test_repair_is_gone():
 
 
 def test_help_uses_the_new_paths():
-    for path in ["🐾 내 펫 ▸ 키우기 ▸", "⚙️ 설정 ▸ 🌨️ 날씨 효과", "⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸", "📍 날씨 지역 ▸", "🎮 놀기 ▸ 🗑️ 쓰레기 꺼내기 ▸", "🎲 사다리타기 ▸ 새 사다리…", "🎲 사다리타기 ▸ 초대 받기", "🎲 사다리타기 ▸ 지난 결과"]:
+    for path in ["▸ 종류 ▸", "⚙️ 설정 ▸ 🌨️ 날씨 효과", "⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸", "⚙️ 설정 ▸ 📍 날씨 지역 ▸", "🔄 새로고침", "♻️ 재시작", "🎮 놀기 ▸ 🗑️ 쓰레기 꺼내기 ▸", "🎲 사다리타기 ▸ 새 사다리…", "🎲 사다리타기 ▸ 초대 받기", "🎲 사다리타기 ▸ 지난 결과"]:
         assert path in HELP, path
+    assert "고른 펫 ▸" not in HELP and "🐾 내 펫 ▸" not in HELP and "🌦️ 날씨 종류 ▸ 📍" not in HELP
     assert "캐릭터 ▸" not in HELP and "내 친구 코드 보기" not in HELP and "사다리 초대 받기" not in HELP
     assert "스타일 ▸" not in HELP and "선물" not in HELP and "픽셀" not in HELP and "유령" not in HELP
 
@@ -70,7 +96,7 @@ def test_throwing_ten_is_one_menu_that_lists_the_friends():
     assert 'Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !targets.is_empty())' in fill
     assert "format!(\"{THROW_VOLLEY_PREFIX}{}\", f.target)" in fill
     # 친구별 하위 메뉴에서는 빠졌다
-    assert "&[send, &letter, &bring, &sep," in fill and "물건 10개 던지기" not in fill
+    assert "friend.append_items(&[&letter, &bring, &sep," in fill and "물건 10개 던지기" not in fill
     assert "ObjectInput::ThrowVolley(id.to_string())" in TRAY
     assert "🗑️ 쓰레기 10개 던지기" in HELP
 
@@ -107,7 +133,7 @@ def test_size_window_slides_live_and_resets_easily():
 
 def test_friend_submenu_links_my_other_computer_with_a_code():
     fill = TRAY[TRAY.index("fn try_fill_friends") :]
-    fill = fill[: fill.index("/// 내 동물이 친구 화면에")]
+    fill = fill[: fill.index("/// 하우스 항목 글자")]
     # 친구 하위 메뉴: 연결 안 됐으면 코드 창을 여는 항목, 연결된 그 친구면 연결 끊기 (이름 바꾸기 위)
     assert '"📱 내 다른 컴퓨터로 연결…"' in fill and '"📱 연결 끊기 (내 컴퓨터)"' in fill
     assert 'format!("{UNLINK_PREFIX}{}", f.id)' in fill and 'format!("{DEVICE_PREFIX}{}", f.id)' in fill
@@ -145,7 +171,7 @@ NETWORK = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8"
 
 def _fill():
     fill = TRAY[TRAY.index("fn try_fill_friends") :]
-    return fill[: fill.index("/// 내 동물이 친구 화면에")]
+    return fill[: fill.index("/// 하우스 항목 글자")]
 
 
 def test_a_friend_and_their_other_computer_are_one_row_that_acts_on_the_computer_they_play_on():
@@ -155,7 +181,8 @@ def test_a_friend_and_their_other_computer_are_one_row_that_acts_on_the_computer
     assert "config.people(" in NETWORK[NETWORK.index("fn menu_model") :]
     assert "pub target: String," in TRAY
     # 보내기·편지·데리고 오기·던지기는 지금 노는 컴퓨터로, 화면 끝·이름·연결 끊기는 그 사람(처음 친구)으로
-    for prefix in ("SEND_LIST_PREFIX", "THROW_VOLLEY_PREFIX", "SEND_PREFIX", "LETTER_PREFIX", "BRING_PREFIX"):
+    assert 'format!("{SEND_PET_PREFIX}{uid}|{}", f.target)' in fill
+    for prefix in ("THROW_VOLLEY_PREFIX", "SEND_PREFIX", "LETTER_PREFIX", "BRING_PREFIX"):
         assert 'format!("{%s}{}", f.target)' % prefix in fill, prefix
     for prefix in ("NICKNAME_PREFIX", "UNFRIEND_PREFIX", "UNLINK_PREFIX", "DEVICE_PREFIX"):
         assert 'format!("{%s}{}", f.id)' % prefix in fill, prefix
@@ -170,7 +197,7 @@ def test_a_friend_and_their_other_computer_are_one_row_that_acts_on_the_computer
 def test_the_computer_on_standby_says_so_and_can_take_over():
     fill = _fill()
     assert '"📱 지금은 다른 컴퓨터에서 놀고 있어요"' in fill and '"📱 이 컴퓨터로 놀기"' in fill
-    assert fill.index("MY_NAME_ID") < fill.index("📱 지금은 다른 컴퓨터에서 놀고 있어요") < fill.index("SHOW_CODE_ID")
+    assert fill.index('"👫 친구"') < fill.index("📱 지금은 다른 컴퓨터에서 놀고 있어요") < fill.index("for f in &model.friends")
     assert "PLAY_HERE_ID => net(NetInput::PlayHere)" in TRAY or "other == PLAY_HERE_ID" in TRAY
     assert "NetInput::PlayHere =>" in NETWORK and "net.claim_active()" in NETWORK
     # 저절로 넘어오기: 대기 중에 다시 쓰기 시작하면 (core의 ClaimWatch), 쓴 지 얼마나 됐는지는 net에도
@@ -231,7 +258,7 @@ def test_my_two_computers_share_the_pet_and_its_growth():
     assert "share_state(" not in arm, "what came from the other computer is not sent back"
     set_pet = GAME_LOOP[GAME_LOOP.index("Input::SetPet { entry: next, remote } =>") :]
     set_pet = set_pet[: set_pet.index("Input::SetTint(")]
-    assert "sync_pet_checks(" in set_pet and "if !remote" in set_pet
+    assert "menu_dirty = true;" in set_pet and "if !remote" in set_pet
     # 먹이기·성장 멈추기·처음부터·펫 바꾸기·점심 배고픔·주기적 저장 때 알린다
     assert GAME_LOOP.count("share_care(") >= 7
 
@@ -252,28 +279,29 @@ def test_a_short_drop_does_not_flip_friends_offline_or_redraw_the_menu():
     assert 'log!(Info, "net", "friend_down", "friend" => short_id(&id));' in net
 
 
-def test_heumul_color_menu_sits_under_the_pets_only_for_tintable_pets():
-    """🎨 흐물이 색 ▸ (기본·흰색·…·🌈 무지개, 지금 색에 체크): 🐾 내 펫 ▸ 키우기 바로 아래, 잉크 선 동물(pet.json tint)일 때만 끼어든다."""
-    assert 'Submenu::with_id(app, TINT_MENU_ID, "🎨 흐물이 색", true)' in TRAY and "menu.my_pet.get(TINT_MENU_ID).is_some()" in TRAY
+def test_heumul_color_menu_sits_in_each_tintable_pets_submenu():
+    """🎨 흐물이 색 ▸ (기본·흰색·…·🌈 무지개, 지금 색에 체크): 잉크 선 동물(pet.json tint) 펫의 하위 메뉴, 종류 ▸ 바로 아래. 색은 하나라 모든 흐물이 펫 메뉴의 체크가 같이 바뀐다."""
+    pet = TRAY[TRAY.index("fn build_pet_menu(") :]
+    pet = pet[: pet.index("\n}\n")]
+    assert 'Submenu::new(app, "🎨 흐물이 색", true)' in pet and "if shape.tintable {" in pet
+    assert pet.index("sub.append(&kind)?") < pet.index('"🎨 흐물이 색"') < pet.index("sub.append(&lock)?")
     assert 'const TINT_PREFIX: &str = "tint:";' in TRAY
-    assert "for tint in BodyTint::ALL" in TRAY and "tint.label()" in TRAY and 'format!("{TINT_PREFIX}{}", tint.id())' in TRAY
-    assert ".strip_prefix(TINT_PREFIX).and_then(BodyTint::from_id)" in TRAY and "Input::SetTint(tint)" in TRAY
-    assert "const TINT_POSITION: usize = 4;" in TRAY  # 고른 펫, 성장 단계, 최근 한 시간, 키우기 다음
-    assert "menu.my_pet.insert(&menu.tint_menu, TINT_POSITION)" in TRAY and "menu.my_pet.remove(&menu.tint_menu)" in TRAY
-    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
-    # 🐾🐾🐾 고른 펫의 동물이 바뀌면 메뉴를 넣고 뺀다 (tray::sync_picked — 게임 루프가 펫 모습이 바뀔 때 부름)
-    sync = TRAY[TRAY.index("pub fn sync_picked(") :]
+    assert "for t in BodyTint::ALL" in pet and "t.label()" in pet and 'format!("{TINT_PREFIX}{label}|{}", t.id())' in pet
+    assert ".strip_prefix(TINT_PREFIX).and_then(|r| r.split_once('|')).and_then(|(_, t)| BodyTint::from_id(t))" in TRAY and "Input::SetTint(tint)" in TRAY
+    assert "p.manifest.tint" in TRAY[TRAY.index("fn pet_shape(") :]
+    sync = TRAY[TRAY.index("pub fn sync_tint(") :]
     sync = sync[: sync.index("\n}\n")]
-    assert "sync_tint_shown(menu, entry.manifest.tint);" in sync
-    assert "crate::tray::sync_picked(&app);" in game
+    assert "flat_map(|m| &m.tints)" in sync
+    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    assert "crate::tray::sync_pets(&app);" in game
     assert "Input::SetTint(tint) => {" in game and "own.set_tint(&app, tint);" in game and "config.tint = tint;" in game
-    assert "🐾 내 펫 ▸ 🎨 흐물이 색 ▸" in HELP
+    assert "🎨 흐물이 색 ▸" in HELP
 
 
 def test_weather_kind_menu_picks_real_or_season_weather_and_the_city():
     """☀️ 실제 날씨 (용인) / 📅 계절 날씨 체크 둘과 📍 날씨 지역 ▸ (도시마다 체크) — ⚙️ 설정 ▸ 🌨️ 날씨 효과 바로 아래."""
     assert 'Submenu::with_items(app, "🌦️ 날씨 종류", true, &[&weather_real, &weather_season, &PredefinedMenuItem::separator(app)?])' in TRAY
-    assert "weather_kind.append(&places_menu)?;" in TRAY
+    assert "weather_kind.append(&places_menu)?;" not in TRAY  # 날씨 지역 ▸ 은 ⚙️ 설정 바로 아래 (깊이 둘까지)
     assert 'Submenu::new(app, "📍 날씨 지역", true)?' in TRAY
     assert "for place in Place::ALL" in TRAY and 'format!("{WEATHER_PLACE_PREFIX}{}", place.id())' in TRAY
     assert 'const WEATHER_PLACE_PREFIX: &str = "weather-place:";' in TRAY
@@ -291,7 +319,7 @@ def test_weather_kind_menu_picks_real_or_season_weather_and_the_city():
 
 def test_weather_kind_menu_lets_you_pick_the_weather_yourself():
     """❄️ 눈 / 🌧️ 비 / 🍂 낙엽 / 🌸 꽃잎 / 🌿 푸른 잎 — 실제·계절 다음에 체크 항목으로, 고르면 설정에 남고 날씨 효과도 켬."""
-    build = TRAY[TRAY.index('"🌦️ 날씨 종류"'):TRAY.index("weather_kind.append(&places_menu)?;")]
+    build = TRAY[TRAY.index('"🌦️ 날씨 종류"'):TRAY.index("let broom = CheckMenuItem")]
     assert "for source in WeatherSource::MANUAL" in build
     assert 'format!("{WEATHER_SRC_PREFIX}{}", source.id())' in build and "source.label()" in build
     assert "weather_kind.append(&item)?;" in build and "weather_manual.push((item, source));" in build
@@ -309,3 +337,62 @@ def test_weather_kind_menu_lets_you_pick_the_weather_yourself():
     assert "config.weather_on = true;" in arm and "weather.sync_menu(&app, false);" in arm
     # 날씨 효과 체크는 일 년 내내 누를 수 있음
     assert "set_enabled" not in TRAY[TRAY.index("let weather = CheckMenuItem"):TRAY.index("let weather_kind")]
+
+
+def test_refresh_and_restart_sit_right_above_quit():
+    """🔄 새로고침 (떠 있는 창을 모두 다시 읽고 다시 보임 — 돌던 것·연결은 그대로)과 ♻️ 재시작 (저장·정리 후 다시 띄움)이 종료 바로 위."""
+    assert "menu.append(&refresh)?;\n    menu.append(&restart)?;\n    menu.append(&quit)?;" in TRAY and '"🚪 종료"' in TRAY
+    assert '"🔄 새로고침"' in TRAY and '"♻️ 재시작"' in TRAY
+    assert "REFRESH_ID => send(app, Input::Refresh)," in TRAY
+    restart = TRAY[TRAY.index("RESTART_ID => {") :]
+    restart = restart[: restart.index("}\n            }")]
+    assert "Input::Restart" in restart and "app.request_restart()" in restart
+    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    arm = game[game.index("Input::Restart => {") :]
+    arm = arm[: arm.index("Input::Refresh => {")]
+    # 종료처럼 저장하고 🌗 테마를 되돌린 뒤, Tauri가 정리(single-instance 잠금 풀기)를 마치고 새 앱을 띄움
+    assert "save_config(&app, &mut config);" in arm and "l.quit(LUMOS_QUIT_WAIT)" in arm and "app.request_restart();" in arm
+    assert "app.exit(" not in arm and "std::process::exit" not in game
+    refresh = game[game.index("Input::Refresh => {") :]
+    refresh = refresh[: refresh.index("Input::SaveAndStop(done)")]
+    assert "refresh_windows(" in refresh and "resend_at = Some(" in refresh
+    assert "🔄 새로고침" in HELP and "♻️ 재시작" in HELP
+
+
+def test_the_update_item_no_longer_shares_the_refresh_icon():
+    assert '"🔄 업데이트' not in TRAY and '"⬆️ 업데이트"' in TRAY
+
+
+def test_menu_clicks_only_send_inputs():
+    """메인 스레드의 메뉴 처리기는 입력만 보냄: 메뉴를 바꾸면 메인 스레드가 스스로를 기다려 멈출 수 있음 (게임 루프가 sync_pets로 맞춤)."""
+    handler = TRAY[TRAY.index(".on_menu_event(move |app, event|") :]
+    handler = handler[: handler.index(".build(app)?;")]
+    for op in ("set_checked(", "set_text(", "set_enabled(", "sync_pets(", "insert(", "remove("):
+        assert op not in handler, op
+    assert "fn send_to_pet(" in TRAY
+    for arm in ("KIND_PREFIX", "CONTROL_PREFIX", "LOCK_PREFIX", "RESET_PREFIX", "LET_GO_PREFIX"):
+        assert "other.strip_prefix(%s)" % arm in handler, arm
+
+
+def test_control_is_at_the_top_and_picks_the_pet_when_there_are_many():
+    """🎮 조작: 한 마리면 맨 위 체크 하나, 여럿이면 🎮 조작 ▸ 펫마다 체크 (다른 펫을 고르면 그 펫으로 넘어감) — 🙈 숨기기 바로 위."""
+    build = TRAY[TRAY.index("fn build_control(") :]
+    build = build[: build.index("\n}\n")]
+    assert "if let [only] = views {" in build and "ControlMenu::One(" in build and "ControlMenu::Many(" in build
+    assert 'format!("{CONTROL_PREFIX}{}", v.label)' in build
+    sync = TRAY[TRAY.index("fn sync_control(") :]
+    sync = sync[: sync.index("\n}\n")]
+    assert "c.labels() == labels" in sync, "rebuilt only when the pet list changes"
+    assert "let taken = menu.control.lock().unwrap().take();" in sync
+    insert = TRAY[TRAY.index("fn insert_into(") :]
+    assert "item.id() == TOGGLE_ID" in insert[: insert.index("\n    }\n")]
+    assert "sync_control(app, menu, &views);" in TRAY
+    # 펫 하위 메뉴에는 없음 (같은 항목이 두 군데 있지 않음)
+    pet = TRAY[TRAY.index("fn build_pet_menu(") :]
+    assert "CONTROL_PREFIX" not in pet[: pet.index("\n}\n")]
+
+
+def test_help_and_feedback_sit_in_one_info_menu_that_rings_for_news():
+    assert "pub fn sync_info(" in TRAY and '"ℹ️ 도움말·건의 🔔"' in TRAY
+    mailbox = (ROOT / "src-tauri" / "src" / "mailbox.rs").read_text(encoding="utf-8")
+    assert "menu.bell[1].store(n > 0" in mailbox and "crate::tray::sync_info(menu);" in mailbox

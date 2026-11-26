@@ -98,7 +98,7 @@ pub struct Config {
     /// 이름은 루모스만 있던 때 그대로 — 예전 선택이 이어짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub lumos_light: bool,
-    /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않음). 모르는 값이면 25/5
+    /// 🍅 뽀모도로 길이 (켜져 있는지는 남기지 않음). 모르는 값이면 25/5
     #[serde(default, skip_serializing_if = "FocusLength::is_short", deserialize_with = "lenient")]
     pub focus_length: FocusLength,
     /// 오늘의 아침·점심 인사를 했는지 (앱을 다시 켜도 하루 한 번)

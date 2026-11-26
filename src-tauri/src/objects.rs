@@ -359,6 +359,27 @@ pub struct Objects {
 }
 
 impl Objects {
+    /// 🔄 물건 창 웹뷰를 다시 읽음 (긴 잠금·절전 뒤 그림을 잃은 WebView2를 되살림 — 새로고침). 모습은 resend가 다시 보냄
+    pub fn reload_windows(&mut self) {
+        for w in self.live.iter().filter_map(|l| l.window.as_ref()) {
+            let _ = w.reload();
+        }
+    }
+
+    /// 다시 읽은 물건 창에 크기·자리·모습을 다시 보냄 (페이지가 다 뜬 뒤 — 게임 루프가 잠시 뒤 부름)
+    pub fn resend(&mut self, app: &AppHandle) {
+        for l in &mut self.live {
+            if l.window.is_none() {
+                continue;
+            }
+            l.last_pos = None;
+            // NaN은 어떤 모습과도 같지 않음: 다음 틱에 지금 모습을 꼭 보냄
+            l.last_pose = PosePayload { angle: f64::NAN, dx: 0.0 };
+            let side = shape_of(l.object.kind).window_side_at(l.object.scale());
+            let _ = app.emit_to(l.label.as_str(), "object-scale", ScalePayload { scale: l.object.scale(), side });
+        }
+    }
+
     /// 빈 상태로 만듦
     pub fn new() -> Objects {
         let now = Instant::now();

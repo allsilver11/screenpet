@@ -107,7 +107,7 @@ def test_clouds_are_round_even_with_an_old_pixel_flag(run):
 
 def test_help_and_release_note_mention_the_trail():
     help_text = (UI / "help.html").read_text(encoding="utf-8")
-    line = next(l for l in help_text.splitlines() if "흐물이 색" in l)
+    line = next(l for l in help_text.splitlines() if "흐물이 색 ▸</b>에서" in l)
     assert "무지개 구름" in line
     notes = (ROOT / "docs" / "releases" / "v0.6.3.md").read_text(encoding="utf-8")
     assert "무지개 구름" in notes

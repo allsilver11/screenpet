@@ -1,4 +1,4 @@
-//! 🔄 업데이트: 우리 서버(pet.danni.day/downloads)의 latest.json을 읽어 이 컴퓨터용 설치 파일을 고르고 확인하는 순수한 부분
+//! ⬆️ 업데이트: 우리 서버(pet.danni.day/downloads)의 latest.json을 읽어 이 컴퓨터용 설치 파일을 고르고 확인하는 순수한 부분
 //! (내려받기·설치는 앱의 update.rs — 여기는 네트워크·파일 없이 시험함)
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -374,7 +374,7 @@ impl CheerGate {
     }
 }
 
-/// 트레이 "🔄 업데이트" 항목의 상태
+/// 트레이 "⬆️ 업데이트" 항목의 상태
 #[derive(Debug, Clone, PartialEq)]
 pub enum MenuState {
     Idle,
@@ -391,13 +391,13 @@ impl MenuState {
     /// 트레이 메뉴 글자
     pub fn label(&self) -> String {
         match self {
-            MenuState::Idle => "🔄 업데이트".into(),
-            MenuState::Checking => "🔄 업데이트 확인 중…".into(),
-            MenuState::Downloading(v) => format!("🔄 업데이트 받는 중… (v{v})"),
-            MenuState::Installing(v) => format!("🔄 v{v} 설치하는 중…"),
-            MenuState::Available(v) => format!("🔄 업데이트 (v{v} 나왔어요!)"),
-            MenuState::UpToDate(v) => format!("🔄 업데이트 — 최신 버전이에요 (v{v})"),
-            MenuState::Failed(e) => format!("🔄 업데이트를 받지 못했어요: {e}"),
+            MenuState::Idle => "⬆️ 업데이트".into(),
+            MenuState::Checking => "⬆️ 업데이트 확인 중…".into(),
+            MenuState::Downloading(v) => format!("⬆️ 업데이트 받는 중… (v{v})"),
+            MenuState::Installing(v) => format!("⬆️ v{v} 설치하는 중…"),
+            MenuState::Available(v) => format!("⬆️ 업데이트 (v{v} 나왔어요!)"),
+            MenuState::UpToDate(v) => format!("⬆️ 업데이트 — 최신 버전이에요 (v{v})"),
+            MenuState::Failed(e) => format!("⬆️ 업데이트를 받지 못했어요: {e}"),
         }
     }
 
@@ -666,11 +666,11 @@ mod tests {
 
     #[test]
     fn menu_labels_say_what_is_happening() {
-        assert_eq!(MenuState::Idle.label(), "🔄 업데이트");
-        assert_eq!(MenuState::Downloading(v("0.6.3")).label(), "🔄 업데이트 받는 중… (v0.6.3)");
-        assert_eq!(MenuState::Available(v("0.6.3")).label(), "🔄 업데이트 (v0.6.3 나왔어요!)");
-        assert_eq!(MenuState::UpToDate(v("0.6.2")).label(), "🔄 업데이트 — 최신 버전이에요 (v0.6.2)");
-        assert!(MenuState::Failed(UpdateError::Network).label().starts_with("🔄 업데이트를 받지 못했어요: "));
+        assert_eq!(MenuState::Idle.label(), "⬆️ 업데이트");
+        assert_eq!(MenuState::Downloading(v("0.6.3")).label(), "⬆️ 업데이트 받는 중… (v0.6.3)");
+        assert_eq!(MenuState::Available(v("0.6.3")).label(), "⬆️ 업데이트 (v0.6.3 나왔어요!)");
+        assert_eq!(MenuState::UpToDate(v("0.6.2")).label(), "⬆️ 업데이트 — 최신 버전이에요 (v0.6.2)");
+        assert!(MenuState::Failed(UpdateError::Network).label().starts_with("⬆️ 업데이트를 받지 못했어요: "));
         assert!(!MenuState::Checking.enabled() && !MenuState::Downloading(v("1.0.0")).enabled() && !MenuState::Installing(v("1.0.0")).enabled());
         assert!(MenuState::Idle.enabled() && MenuState::Available(v("1.0.0")).enabled() && MenuState::Failed(UpdateError::Disk).enabled());
         assert_eq!(MenuState::Available(v("1.0.0")).bubble(), None);

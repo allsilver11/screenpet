@@ -42,11 +42,12 @@ def test_new_pet_windows_are_floating_pet_windows():
         assert "pet-*" in cap["windows"], ident
 
 
-def test_menu_adds_lets_go_and_picks_a_pet():
+def test_menu_adds_lets_go_and_has_a_submenu_per_pet():
     tray = _text("tray.rs")
     assert '"🐾 펫 추가"' in tray
-    assert "펫 보내 주기" in tray and "보내 줄까요?" in tray
-    assert "고른 펫" in tray
+    assert '"보내 주기"' in tray and "보내 줄까요?" in tray
+    # 펫마다 하위 메뉴 (고르고 닫히고 다시 여는 "고른 펫 ▸"은 없음)
+    assert "pub fn sync_pets(" in tray and "fn build_pet_menu(" in tray and "고른 펫:" not in tray
     for input_ in ("Input::AddPet(", "Input::RemovePet", "Input::PickPet("):
         assert input_ in tray, input_
     loop = _text("game_loop.rs")
@@ -184,16 +185,36 @@ def test_a_window_handed_to_an_off_screen_pet_is_hidden():
     assert "on_screen()" in swap and "hide_quietly(" in swap
 
 
-def test_the_pick_menu_is_never_filled_under_a_lock_or_from_the_menu_click():
-    """메뉴 바꾸기는 메인 스레드를 기다림 — 잠금을 쥔 채 채우면 메인 스레드 클릭 처리와 서로 기다릴 수 있음"""
+def test_pet_menus_are_never_changed_under_a_lock_or_from_the_menu_click():
+    """메뉴 바꾸기는 메인 스레드를 기다림 — 잠금을 쥔 채 바꾸면 메인 스레드 클릭 처리와 서로 기다릴 수 있음.
+    손잡이는 잠금 안에서 꺼내고 (clone) 넣기만 하고, 모양이 그대로면 다시 만들지 않음 (열린 메뉴가 닫히지 않게)"""
     tray = _text("tray.rs")
-    sync = _fn(tray, "pub fn sync_picked(")
-    fill = sync.index("fill_pick_menu(")
-    locked = sync.rfind("pick_list.lock()", 0, fill)
-    assert "drop(shown)" in sync[locked:fill], "the lock is released before filling"
-    handler = tray[tray.index("other.strip_prefix(PICK_PREFIX)"):]
-    handler = handler[: handler.index("} else if")]
-    assert "pick(app" not in handler and "Input::PickPet(" in handler
+    sync = _fn(tray, "pub fn sync_pets(")
+    assert "let old = menu.pet_menus.lock().unwrap().clone();" in sync
+    assert "*menu.pet_menus.lock().unwrap() = next;" in sync
+    assert sync.count("pet_menus.lock()") == 2
+    assert "m.shape == shape" in sync and "next.push(m.clone());" in sync
+    handler = tray[tray.index(".on_menu_event(move |app, event|"):]
+    handler = handler[: handler.index(".build(app)?;")]
+    assert "sync_pets(" not in handler and "pick(app" not in handler
+    # 누른 펫 항목은 그 펫을 고른 뒤 (PickPet) 할 일을 보냄 — 게임 루프가 차례로 처리
+    send_to = _fn(tray, "fn send_to_pet(")
+    assert send_to.index("Input::PickPet(") < send_to.index("send(app, input)")
+
+
+def test_one_pet_has_no_extra_level_and_no_let_go():
+    tray = _text("tray.rs")
+    pet = _fn(tray, "fn build_pet_menu(")
+    assert "let let_go = if shape.many {" in pet
+    shape = _fn(tray, "fn pet_shape(")
+    assert "many: count > 1" in shape
+
+
+def test_control_moves_to_the_pet_whose_menu_was_used():
+    loop = _text("game_loop.rs")
+    arm = loop[loop.index("Input::ToggleControl => {"):loop.index("Input::ToggleBroom =>")]
+    assert "control_on && control_label != target" in arm
+    assert "controlled: control == Some(s.label.as_str())," in loop
 
 
 def test_a_new_pet_window_never_reuses_a_label_still_being_destroyed():

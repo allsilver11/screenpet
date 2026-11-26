@@ -1,4 +1,4 @@
-//! 🔄 업데이트 (트레이 메뉴): 우리 서버(https://pet.danni.day/downloads/)의 latest.json을 보고 이 컴퓨터용 설치 파일을 받아
+//! ⬆️ 업데이트 (트레이 메뉴): 우리 서버(https://pet.danni.day/downloads/)의 latest.json을 보고 이 컴퓨터용 설치 파일을 받아
 //! 크기·SHA-256을 확인한 뒤 설치하고 앱을 끝냄. 주소는 고정 (사용자가 바꾸는 릴레이 주소와 상관없음), pet.danni.day https만.
 //! Tauri 업데이터 플러그인은 쓰지 않음 — 대신 latest.json에 우리 Ed25519 서명(latest.json.sig, 공개 키는 screenpet_core::update)이 맞아야
 //! 그 안을 믿고, 받은 파일은 latest.json의 sha256·size와 맞아야만 설치함. 서버(릴레이)를 가진 사람도 비밀 키 없이는 설치 파일을 바꿔 끼울 수 없음.
@@ -46,7 +46,7 @@ fn current_version() -> Version {
     Version::parse(env!("CARGO_PKG_VERSION")).expect("package version is X.Y.Z")
 }
 
-/// 트레이 "🔄 업데이트"를 눌렀음: 뒤에서 확인 → (새 버전이면) 받기 → 확인 → 설치 → 앱 끝내기
+/// 트레이 "⬆️ 업데이트"를 눌렀음: 뒤에서 확인 → (새 버전이면) 받기 → 확인 → 설치 → 앱 끝내기
 pub fn on_click(app: &AppHandle) {
     if BUSY.swap(true, Ordering::SeqCst) {
         return;
@@ -84,7 +84,7 @@ fn run(app: &AppHandle) -> Result<(), UpdateError> {
     }
 }
 
-/// 켜진 뒤 한 번, 그 뒤 2시간마다 조용히 확인함. 새 버전이면 메뉴 글자만 "🔄 업데이트 (vX 나왔어요!)" — 받거나 깔지 않음
+/// 켜진 뒤 한 번, 그 뒤 2시간마다 조용히 확인함. 새 버전이면 메뉴 글자만 "⬆️ 업데이트 (vX 나왔어요!)" — 받거나 깔지 않음
 pub fn start_quiet_checks(app: &AppHandle) {
     let Some(platform) = Platform::current() else { return };
     let app = app.clone();
@@ -130,11 +130,14 @@ fn show_quietly(app: &AppHandle, state: MenuState) {
     }
 }
 
-/// 트레이 업데이트 메뉴 글자를 바꿈
+/// 트레이 업데이트 메뉴 글자를 바꿈 (새 버전이면 ℹ️ 도움말·건의 ▸ 에 🔔)
 fn set_menu(app: &AppHandle, state: &MenuState) {
-    let item = &app.state::<AppState>().menu.update;
-    let _ = item.set_text(state.label());
-    let _ = item.set_enabled(state.enabled());
+    let menu = &app.state::<AppState>().menu;
+    let _ = menu.update.set_text(state.label());
+    let _ = menu.update.set_enabled(state.enabled());
+    // ℹ️ 도움말·건의 ▸ 글자에 🔔 (새 버전이 나왔을 때 — 안에 숨은 업데이트를 알아보게)
+    menu.bell[0].store(matches!(state, MenuState::Available(_)), Ordering::Relaxed);
+    crate::tray::sync_info(menu);
 }
 
 /// 넘겨주기는 따라가지 않게 해 두고 (max_redirects(0)) 한 번마다 허용된 곳인지 보며 직접 따라감

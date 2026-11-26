@@ -126,6 +126,23 @@ pub struct WeatherFx {
 }
 
 impl WeatherFx {
+    /// 🔄 날씨 덮개·눈사람 창 웹뷰를 다시 읽음 (새로고침·깨어남). 장면은 resend가 다시 보냄 (더미는 앱이 가짐)
+    pub fn reload_windows(&mut self) {
+        for o in &self.overlays {
+            let _ = o.window.reload();
+        }
+        if let Some(s) = &self.snowman {
+            let _ = s.window.reload();
+        }
+    }
+
+    /// 다시 읽은 덮개 창에 지금 장면을 다시 보냄 (페이지가 다 뜬 뒤)
+    pub fn resend(&mut self) {
+        for o in &mut self.overlays {
+            o.last = None;
+        }
+    }
+
     /// 새로 만듦. `SCREENPET_WEATHER`가 있으면 미리 보기로 둠
     pub fn new(seed: u64) -> Self {
         let preview = std::env::var(PREVIEW_ENV).ok().and_then(|v| weather::parse_preview(&v));

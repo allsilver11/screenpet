@@ -49,6 +49,8 @@ pub mod update;
 /// 🚗 탈것 (자동차·헬리콥터·킥보드·픽업 트럭)
 pub mod vehicle;
 pub mod visit;
+/// 💤 잤다 깼음·오래 비웠다 돌아옴·모니터 바뀜 → 떠 있는 창 새로 고침
+pub mod wake;
 pub mod weather;
 pub mod web;
 /// 🦇 박쥐인간 오토바이·박쥐 신호의 숫자
