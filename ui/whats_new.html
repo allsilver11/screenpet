@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="form.css" />
+    <style>
+      #notes { width: 420px; max-height: 450px; overflow-y: auto; font-size: 12px; line-height: 1.55; }
+      #notes h2 { font-size: 14px; margin: 6px 0 4px; }
+      #notes h3 { font-size: 12.5px; margin: 10px 0 2px; }
+      #notes ul { margin: 0; padding-left: 18px; }
+      #notes p { margin: 4px 0; }
+      #notes .note + .note { border-top: 1px dashed #e0d2bd; margin-top: 10px; padding-top: 6px; }
+    </style>
+  </head>
+  <body>
+    <div id="title">✨ 업데이트 소식</div>
+    <div id="hint">새로 생긴 것과 고친 것이에요. 트레이 메뉴 "✨ 업데이트 소식"에서 다시 볼 수 있어요.</div>
+    <div id="notes"></div>
+    <div id="buttons">
+      <button id="ok" class="primary">확인</button>
+    </div>
+    <script src="common.js"></script>
+    <script src="whats_new.js"></script>
+  </body>
+</html>

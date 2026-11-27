@@ -54,7 +54,7 @@ def test_update_item_sits_under_help_and_starts_the_updater():
     assert "UPDATE_ID => crate::update::on_click(app)," in TRAY
     assert "pub update: MenuItem<Wry>," in TRAY
     # ℹ️ 도움말·건의 ▸ 맨 끝 (새 버전이면 그 하위 메뉴 글자에 🔔)
-    assert 'Submenu::with_items(app, "ℹ️ 도움말·건의", true, &[&help, &feedback, &board])' in TRAY and "info.append(&update)?;" in TRAY
+    assert 'Submenu::with_items(app, "ℹ️ 도움말·건의", true, &[&help, &whats_new, &feedback, &board])' in TRAY and "info.append(&update)?;" in TRAY
     up = (ROOT / "src-tauri" / "src" / "update.rs").read_text(encoding="utf-8")
     assert "menu.bell[0].store(matches!(state, MenuState::Available(_))" in up and "crate::tray::sync_info(menu);" in up
     assert "update::start_quiet_checks(app.handle())" in MAIN

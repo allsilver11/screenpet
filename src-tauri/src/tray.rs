@@ -82,6 +82,8 @@ const PETS_POSITION: usize = 2;
 const HOUSE_ID: &str = "house";
 /// 🎮 놀기 ▸ 🕐 최근 한 시간 창 열기
 const TIMELINE_ID: &str = "timeline";
+/// ✨ 업데이트 소식 (지금 버전 릴리즈 노트)
+const WHATS_NEW_ID: &str = "whats_new";
 const DODGE_ID: &str = "dodge";
 /// 펫 하위 메뉴 ▸ 🎨 흐물이 색 ▸ 체크 항목 (뒤는 "<펫 창 라벨>|<BodyTint id>" — 색은 하나라 설정에 남음, 웹뷰가 잉크 자리만 칠함)
 const TINT_PREFIX: &str = "tint:";
@@ -1155,7 +1157,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], favorite: &FavoriteFood, housed
     let (s1, s2, s3) = (sep()?, sep()?, sep()?);
     let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &places_menu, &s1, &poop, &cursor_play, &typing_cheer, &lumos_light, &s2, &sizes, &opacity, &s3, &autostart, &pet_stats])?;
     // ℹ️ 도움말·건의 ▸ (📊 펫 통계는 개발자 컴퓨터에만 — 📮 건의함 바로 밑)
-    let info = Submenu::with_items(app, "ℹ️ 도움말·건의", true, &[&help, &feedback, &board])?;
+    let whats_new = MenuItem::with_id(app, WHATS_NEW_ID, "✨ 업데이트 소식", true, None::<&str>)?;
+    let info = Submenu::with_items(app, "ℹ️ 도움말·건의", true, &[&help, &whats_new, &feedback, &board])?;
     if dev {
         info.append(&MenuItem::with_id(app, STATS_VIEW_ID, "📊 펫 통계", true, None::<&str>)?)?;
     }
@@ -1212,6 +1215,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], favorite: &FavoriteFood, housed
             STATS_VIEW_ID => send(app, Input::ShowPetStats),
             UPDATE_ID => crate::update::on_click(app),
             TIMELINE_ID => send(app, Input::ShowTimeline),
+            WHATS_NEW_ID => send(app, Input::ShowWhatsNew),
             DODGE_ID => send(app, Input::ShowDodge),
             "feed:water" => send(app, Input::Feed { food: Food::Water, label: None }),
             HOUSE_ID => send(app, Input::ToggleHouse),

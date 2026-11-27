@@ -119,6 +119,9 @@ pub struct Config {
     /// 📊 익명 펫 통계: 동의(처음 켤 때 묻는 창·⚙️ 설정 체크), 오늘 기록, 아직 못 보낸 지난날 보고 (pet_stats.rs). 망가진 값이면 없는 것으로
     #[serde(default, skip_serializing_if = "crate::pet_stats::StatsBook::is_empty", deserialize_with = "lenient")]
     pub pet_stats: crate::pet_stats::StatsBook,
+    /// ✨ 업데이트 소식을 마지막으로 본 앱 버전 (whats_new.rs — 새 버전으로 처음 켜면 그 뒤 노트를 한 번 보임)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub seen_version: Option<String>,
 }
 
 /// 지난 사다리타기 결과 (보여 주기만 함 — 이름은 그때 화면에 보인 이름)

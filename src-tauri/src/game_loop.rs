@@ -113,6 +113,8 @@ pub enum Input {
     ToggleStats,
     /// 📊 펫 통계 창 (개발자 컴퓨터만)
     ShowPetStats,
+    /// ✨ 업데이트 소식 창 (트레이)
+    ShowWhatsNew,
     /// 🧹 빗자루 들기 / 내려놓기 (트레이·우클릭 체크 항목)
     ToggleBroom,
     /// 🌨️ 날씨 효과 켜기 / 끄기 (트레이·우클릭 체크 항목)
@@ -591,6 +593,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     }
     if config.pet_stats.consent.is_none() {
         crate::pet_stats::show_ask(&app);
+    }
+    // ✨ 업데이트 뒤 처음 켜면 그동안 나온 릴리즈 노트를 한 번 보임 (처음 설치면 기록만)
+    if crate::whats_new::on_start(&app, &mut config, new_id) {
+        save_config(&app, &mut config);
     }
     share_care(&network, &config, false);
     // ☀️ 실제 날씨: 중계 서버에 고른 도시를 알림 (붙을 때마다 다시 — 옛 서버엔 보내지 않음)
@@ -1334,6 +1340,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                 Input::ShowMailbox => crate::mailbox::show(&app),
                 Input::ShowBoard => crate::board::show(&app),
                 Input::ShowPetStats => crate::pet_stats::show(&app),
+                Input::ShowWhatsNew => crate::whats_new::show(&app),
                 Input::ShowDodge => {
                     // 조작 모드는 게임이 대신함
                     if control_on {

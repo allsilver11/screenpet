@@ -18,6 +18,7 @@ mod opacity;
 mod overlay;
 mod pages;
 mod pet_stats;
+mod whats_new;
 mod pets;
 mod presence;
 mod prop;
@@ -352,6 +353,8 @@ fn main() {
             board::board_close,
             pet_stats::stats_answer,
             pet_stats::stats_list,
+            whats_new::whats_new_state,
+            whats_new::whats_new_close,
             pet_stats::stats_close,
             ladder::ladder_state,
             ladder::ladder_host,

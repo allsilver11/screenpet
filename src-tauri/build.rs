@@ -33,6 +33,22 @@ fn main() {
     code.push_str("];\n");
     fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("pets.rs"), code).unwrap();
 
+    // ✨ 릴리즈 노트 (docs/releases/v*.md) — 업데이트 뒤 처음 켤 때 보이는 소식 창 (whats_new.rs)
+    let notes_dir = Path::new(&manifest_dir).join("../docs/releases");
+    println!("cargo:rerun-if-changed={}", notes_dir.display());
+    let mut notes: Vec<String> = fs::read_dir(&notes_dir)
+        .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with('v') && n.ends_with(".md")).collect())
+        .unwrap_or_default();
+    notes.sort();
+    let mut code = String::from("pub const RELEASE_NOTES: &[(&str, &str)] = &[\n");
+    for name in &notes {
+        let path = notes_dir.join(name);
+        println!("cargo:rerun-if-changed={}", path.display());
+        code.push_str(&format!("    ({:?}, include_str!({:?})),\n", name.trim_end_matches(".md"), path.display().to_string()));
+    }
+    code.push_str("];\n");
+    fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("release_notes.rs"), code).unwrap();
+
     // 앱 커맨드도 권한 목록(capabilities/default.json)에 있는 창만 부를 수 있음. main.rs의 generate_handler와 같은 목록 (tools/test_capabilities.py가 맞춰 봄)
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
         "pointer_down",
@@ -81,6 +97,8 @@ fn main() {
         "stats_answer",
         "stats_list",
         "stats_close",
+        "whats_new_state",
+        "whats_new_close",
         "ladder_state",
         "ladder_host",
         "ladder_begin",

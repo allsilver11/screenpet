@@ -17,7 +17,7 @@ def test_top_level_order():
     assert names == ["easter_egg", "separator", "add_menu", "separator", "feed", "house", "toggle", "focus", "separator", "play", "separator", "settings", "info", "separator", "refresh", "restart", "quit"]
     assert "const PETS_POSITION: usize = 2;" in TRAY and "menu.menu.insert(&m.sub, PETS_POSITION + i)" in TRAY
     # 📮 건의함은 누구나, 건의하기 바로 밑 (개발자 컴퓨터에서는 개발자 건의함을 연다) — ℹ️ 도움말·건의 ▸ 안
-    assert 'Submenu::with_items(app, "ℹ️ 도움말·건의", true, &[&help, &feedback, &board])' in TRAY
+    assert 'Submenu::with_items(app, "ℹ️ 도움말·건의", true, &[&help, &whats_new, &feedback, &board])' in TRAY
     assert "menu.append(&play)?;" in build and '"👫 친구랑 놀기"' not in TRAY, "one play menu holds solo and friend play"
 
 
