@@ -7,6 +7,7 @@
 use screenpet_core::care::{growth_label, Food, Stage};
 use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
+use screenpet_core::pet_group::{menu_rows, MenuRow};
 use screenpet_core::presence::FocusLength;
 use screenpet_core::real_weather::{Place, WeatherSource};
 use screenpet_core::tint::BodyTint;
@@ -517,7 +518,15 @@ fn build_pet_menu(app: &AppHandle, pets: &[PetEntry], shape: PetShape, tint: Bod
     sub.append(&growth)?;
     let kind = Submenu::new(app, kind_label(None), true)?;
     let mut species = Vec::new();
-    for p in pets {
+    // 🗂️ 묶음마다 흐린 머리 칸 (히어로 · 해리포터 · 크리스마스 · 할로윈 · 동물)
+    for row in menu_rows(pets, |p| p.id.as_str()) {
+        let p = match row {
+            MenuRow::Header(g) => {
+                kind.append(&MenuItem::new(app, g.label(), false, None::<&str>)?)?;
+                continue;
+            }
+            MenuRow::Item(p) => p,
+        };
         let item = CheckMenuItem::with_id(app, format!("{KIND_PREFIX}{label}|{}", p.id), &p.manifest.name, true, false, None::<&str>)?;
         kind.append(&item)?;
         species.push((item, p.id.clone()));
@@ -1111,8 +1120,11 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], favorite: &FavoriteFood, housed
     let come_home = MenuItem::with_id(app, COME_HOME_ID, come_home_label(1), true, None::<&str>)?;
     // 🐾 펫 추가 ▸ 동물들 (꽉 차면 흐림)
     let add_menu = Submenu::new(app, "🐾 펫 추가", true)?;
-    for p in pets {
-        add_menu.append(&MenuItem::with_id(app, format!("{ADD_PET_PREFIX}{}", p.id), &p.manifest.name, true, None::<&str>)?)?;
+    for row in menu_rows(pets, |p| p.id.as_str()) {
+        match row {
+            MenuRow::Header(g) => add_menu.append(&MenuItem::new(app, g.label(), false, None::<&str>)?)?,
+            MenuRow::Item(p) => add_menu.append(&MenuItem::with_id(app, format!("{ADD_PET_PREFIX}{}", p.id), &p.manifest.name, true, None::<&str>)?)?,
+        }
     }
     let toggle = MenuItem::with_id(app, TOGGLE_ID, toggle_label(false), true, None::<&str>)?;
     let help = MenuItem::with_id(app, "help", "❓ 도움말", true, None::<&str>)?;

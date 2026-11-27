@@ -24,6 +24,7 @@ pub mod manifest;
 pub mod object;
 pub mod own_pets;
 /// 📊 익명 펫 통계 하루치 모으기 (동의했을 때만)
+pub mod pet_group;
 pub mod pet_stats;
 pub mod pacing;
 pub mod physics;
