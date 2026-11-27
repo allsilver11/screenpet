@@ -4,6 +4,7 @@
 //! 🐾🐾🐾 펫마다 맨 위에 하위 메뉴 (`sync_pets` — 모양이 바뀔 때만 새로 만들고 아니면 글자·체크만): 종류·🎮 조작·성장 멈추기·처음부터·
 //! 집에 와·놀러 보내기·보내 주기. 누른 항목은 PickPet으로 그 펫을 고른 뒤 할 일을 보냄 (`send_to_pet`). 깊이는 둘까지.
 //! "🏡 모두 집에 와"는 둘 이상 가 있을 때만, 하우스·숨기기·집중은 모두 한 번에. 종료 위에 🔄 새로고침·♻️ 재시작.
+//! 💤 쉬는 펫도 같은 자리에 "💤 둘째 고양이 (쉬는 중) ▸" 하위 메뉴가 남음 (다시 데려오기 · 보내 주기 ▸ 만 — build_rest_menu).
 use screenpet_core::care::{growth_label, Food, Stage};
 use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
@@ -70,6 +71,12 @@ const CONTROL_PREFIX: &str = "control:";
 const LOCK_PREFIX: &str = "lock:";
 const RESET_PREFIX: &str = "reset:";
 const LET_GO_PREFIX: &str = "let-go:";
+/// 💤 쉬게 하기 (뒤는 펫 창 라벨)
+const REST_PREFIX: &str = "rest:";
+/// 💤 쉬는 펫의 다시 데려오기 (뒤는 펫 uid — 쉬는 펫은 창이 없음)
+const WAKE_PREFIX: &str = "wake:";
+/// 💤 쉬는 펫의 보내 주기 ▸ 정말? (뒤는 펫 uid)
+const LET_GO_REST_PREFIX: &str = "let-go-rest:";
 /// 펫 이름 앞에 붙는 차례 (여럿일 때만)
 const ORDINALS: [&str; MAX_OWN_PETS] = ["첫째", "둘째", "셋째"];
 /// 📱 대기 중인 컴퓨터의 "이 컴퓨터로 놀기"
@@ -320,6 +327,12 @@ pub struct OwnView {
     pub busy: bool,
     /// 🎮 조작 모드로 조종하는 중
     pub controlled: bool,
+    /// 💤 쉬는 중 (창이 없음 — label은 비어 있음)
+    pub resting: bool,
+    /// 💤 지금 쉬게 할 수 있음 (다른 펫이 나와 있고, 이 펫이 집에 있고 놀러 가거나 하우스를 오가거나 무엇에 매이지 않음)
+    pub can_rest: bool,
+    /// 나와 있는 펫이 이 펫뿐 (보내 주기·쉬게 하기를 막음)
+    pub lone: bool,
 }
 
 /// 🐾🐾🐾 펫 하위 메뉴의 모양: 이것이 바뀌면 그 하위 메뉴를 새로 만들고, 같으면 글자·체크·흐림만 바꿈
@@ -335,6 +348,8 @@ pub struct PetShape {
     pub tintable: bool,
     /// 친구 화면에 가 있음 (🏡 집에 와 가 있음)
     pub away: bool,
+    /// 💤 쉬는 중 (다시 데려오기 · 보내 주기 ▸ 만 있는 하위 메뉴)
+    pub resting: bool,
     /// 놀러 보내기 ▸ 에 보일 연결된 친구들 (보낼 컴퓨터 id, 이름)
     pub friends: Vec<(String, String)>,
 }
@@ -377,6 +392,9 @@ impl ControlMenu {
 
 /// 맨 위 🎮 조작을 펫들에 맞춤: 펫 목록(라벨)이 바뀌었을 때만 다시 만들고, 아니면 체크·글자만
 fn sync_control(app: &AppHandle, menu: &TrayMenu, views: &[OwnView]) {
+    // 💤 쉬는 펫은 창이 없어 조종할 수 없음
+    let views: Vec<OwnView> = views.iter().filter(|v| !v.resting).cloned().collect();
+    let views = views.as_slice();
     let labels: Vec<String> = views.iter().map(|v| v.label.clone()).collect();
     let old = menu.control.lock().unwrap().clone();
     let current = match old.filter(|c| c.labels() == labels) {
@@ -465,6 +483,8 @@ pub struct PetMenu {
     pub sends: Vec<(MenuItem<Wry>, String)>,
     /// 보내 주기 ▸ 와 그 안의 "정말 <이름> 보내 줄까요?" (펫이 둘 이상일 때만)
     pub let_go: Option<(Submenu<Wry>, MenuItem<Wry>)>,
+    /// 💤 쉬게 하기 (펫이 둘 이상이고 나와 있을 때만)
+    pub rest: Option<MenuItem<Wry>>,
     /// 지난번 맞춘 것 (None = 새로 만들어 아직 안 맞춤)
     pub applied: Option<Applied>,
 }
@@ -488,6 +508,11 @@ fn pet_title(name: &str) -> String {
     format!("🐾 {}", menu_text(name))
 }
 
+/// 💤 쉬는 펫 하위 메뉴 글자: "💤 둘째 고양이 (쉬는 중)"
+fn rest_title(name: &str) -> String {
+    format!("💤 {} (쉬는 중)", menu_text(name))
+}
+
 /// 종류 바꾸기 하위 메뉴 글자: 지금 동물 이름을 붙임
 fn kind_label(name: Option<&str>) -> String {
     match name {
@@ -504,16 +529,38 @@ fn let_go_label(name: &str) -> String {
 /// 이 펫의 하위 메뉴 모양 (펫 수·흐물이 여부·놀러 감·연결된 친구)
 fn pet_shape(pets: &[PetEntry], view: &OwnView, count: usize, friends: Option<&FriendsMenu>) -> PetShape {
     let tintable = pets.iter().find(|p| p.id == view.species).is_some_and(|p| p.manifest.tint);
+    // 💤 쉬는 펫 메뉴엔 놀러 보내기가 없음 (친구 목록이 바뀌어도 다시 만들지 않게)
     let friends = friends
-        .filter(|m| m.available)
+        .filter(|m| m.available && !view.resting)
         .map(|m| m.friends.iter().filter(|f| f.connected).map(|f| (f.target.clone(), f.name.clone())).collect())
         .unwrap_or_default();
-    PetShape { label: view.label.clone(), uid: view.uid.clone(), many: count > 1, tintable, away: view.away, friends }
+    PetShape { label: view.label.clone(), uid: view.uid.clone(), many: count > 1, tintable, away: view.away, resting: view.resting, friends }
+}
+
+/// 💤 쉬는 펫의 하위 메뉴: 성장 단계 · 다시 데려오기 · 보내 주기 ▸ 정말?. 다른 할 일은 없음 —
+/// PetMenu의 종류·성장 멈추기·놀러 보내기 칸은 메뉴에 붙이지 않은 빈 항목 (sync_pet_menu가 쉬는 펫이면 건드리지 않음)
+fn build_rest_menu(app: &AppHandle, shape: PetShape) -> tauri::Result<PetMenu> {
+    let uid = shape.uid.clone();
+    let sub = Submenu::new(app, "💤", true)?;
+    let growth = MenuItem::new(app, "", false, None::<&str>)?;
+    sub.append(&growth)?;
+    sub.append(&MenuItem::with_id(app, format!("{WAKE_PREFIX}{uid}"), "다시 데려오기", true, None::<&str>)?)?;
+    let item = MenuItem::with_id(app, format!("{LET_GO_REST_PREFIX}{uid}"), let_go_label(""), true, None::<&str>)?;
+    let menu = Submenu::with_items(app, "보내 주기", true, &[&item])?;
+    sub.append(&PredefinedMenuItem::separator(app)?)?;
+    sub.append(&menu)?;
+    let kind = Submenu::new(app, "", false)?;
+    let lock = CheckMenuItem::new(app, "", false, false, None::<&str>)?;
+    let send = Submenu::new(app, "", false)?;
+    Ok(PetMenu { shape, sub, growth, kind, species: Vec::new(), tints: Vec::new(), lock, send, sends: Vec::new(), let_go: Some((menu, item)), rest: None, applied: None })
 }
 
 /// 펫 하위 메뉴 하나를 만듦: 성장 단계 · 종류 ▸ · (🎨 흐물이 색 ▸) · 성장 멈추기 · 처음부터 다시 키우기 ▸ ·
-/// (🏡 집에 와) · 놀러 보내기 ▸ · (보내 주기 ▸). 글자·체크는 sync_pet_menu가 맞춤
+/// (🏡 집에 와) · 놀러 보내기 ▸ · (💤 쉬게 하기 · 보내 주기 ▸). 💤 쉬는 펫은 build_rest_menu. 글자·체크는 sync_pet_menu가 맞춤
 fn build_pet_menu(app: &AppHandle, pets: &[PetEntry], shape: PetShape, tint: BodyTint) -> tauri::Result<PetMenu> {
+    if shape.resting {
+        return build_rest_menu(app, shape);
+    }
     let label = shape.label.clone();
     let sub = Submenu::new(app, "🐾", true)?;
     let growth = MenuItem::new(app, "", false, None::<&str>)?;
@@ -564,16 +611,18 @@ fn build_pet_menu(app: &AppHandle, pets: &[PetEntry], shape: PetShape, tint: Bod
         send.append(&MenuItem::new(app, "연결된 친구가 없어요", false, None::<&str>)?)?;
     }
     sub.append(&send)?;
-    let let_go = if shape.many {
+    let (rest, let_go) = if shape.many {
+        let rest = MenuItem::with_id(app, format!("{REST_PREFIX}{label}"), "💤 쉬게 하기", false, None::<&str>)?;
         let item = MenuItem::with_id(app, format!("{LET_GO_PREFIX}{label}"), let_go_label(""), true, None::<&str>)?;
         let menu = Submenu::with_items(app, "보내 주기", true, &[&item])?;
         sub.append(&PredefinedMenuItem::separator(app)?)?;
+        sub.append(&rest)?;
         sub.append(&menu)?;
-        Some((menu, item))
+        (Some(rest), Some((menu, item)))
     } else {
-        None
+        (None, None)
     };
-    Ok(PetMenu { shape, sub, growth, kind, species, tints, lock, send, sends, let_go, applied: None })
+    Ok(PetMenu { shape, sub, growth, kind, species, tints, lock, send, sends, let_go, rest, applied: None })
 }
 
 /// 펫 하위 메뉴에 지난번 맞춘 것 (같은 것은 다시 쓰지 않음 — 메뉴 바꾸기는 하나하나 메인 스레드 왕복)
@@ -604,6 +653,20 @@ fn sync_pet_menu(m: &mut PetMenu, view: &OwnView, pets: &[PetEntry], friends: Op
         .collect();
     let was = m.applied.as_ref().filter(|_| !force);
     let changed = |f: &dyn Fn(&Applied) -> bool| was.is_none_or(|w| f(w));
+    // 💤 쉬는 펫: 이름·성장 단계·보내 주기 글자만 (다른 칸은 메뉴에 없음)
+    if view.resting {
+        if changed(&|w| w.view.name != view.name) {
+            let _ = m.sub.set_text(rest_title(&view.name));
+            if let Some((_, item)) = &m.let_go {
+                let _ = item.set_text(let_go_label(&view.name));
+            }
+        }
+        if changed(&|w| w.view.stage != view.stage || w.view.locked != view.locked) {
+            let _ = m.growth.set_text(growth_label(view.stage, view.locked));
+        }
+        m.applied = Some(Applied { view: view.clone(), sends, tint });
+        return;
+    }
     if changed(&|w| w.view.name != view.name) {
         let _ = m.sub.set_text(pet_title(&view.name));
         if let Some((_, item)) = &m.let_go {
@@ -621,8 +684,16 @@ fn sync_pet_menu(m: &mut PetMenu, view: &OwnView, pets: &[PetEntry], friends: Op
             // 친구 화면에 가 있거나 가는 중엔 바꾸지 않음
             let _ = item.set_enabled(!view.busy);
         }
+    }
+    if changed(&|w| w.view.busy != view.busy || w.view.lone != view.lone) {
+        // 나와 있는 마지막 펫은 못 보냄 (💤 나머지는 쉬는 중 — 코어 remove_pet도 거절)
         if let Some((menu, _)) = &m.let_go {
-            let _ = menu.set_enabled(!view.busy);
+            let _ = menu.set_enabled(!view.busy && !view.lone);
+        }
+    }
+    if changed(&|w| w.view.can_rest != view.can_rest) {
+        if let Some(item) = &m.rest {
+            let _ = item.set_enabled(view.can_rest);
         }
     }
     if changed(&|w| w.tint != tint) {
@@ -692,11 +763,11 @@ pub fn sync_pets(app: &AppHandle, force: bool) {
     *menu.pet_menus.lock().unwrap() = next;
     sync_control(app, menu, &views);
     let picked = state.picked.lock().unwrap().clone();
-    let view = views.iter().find(|v| v.label == picked).unwrap_or(&views[0]);
+    let view = views.iter().find(|v| !v.resting && v.label == picked).or(views.iter().find(|v| !v.resting)).unwrap_or(&views[0]);
     if let Some(entry) = state.pets.iter().find(|p| p.id == view.species) {
         set_favorite_label(menu, &crate::game_loop::favorite_of(entry));
     }
-    let _ = menu.house.set_enabled(!views.iter().all(|v| v.busy));
+    let _ = menu.house.set_enabled(!views.iter().filter(|v| !v.resting).all(|v| v.busy));
     let _ = menu.add_menu.set_enabled(views.len() < MAX_OWN_PETS);
 }
 
@@ -1000,7 +1071,7 @@ fn own_windows(app: &AppHandle) -> Vec<WebviewWindow> {
         let out = state.housed.load(Ordering::Relaxed) || state.away.load(Ordering::Relaxed);
         return if out { Vec::new() } else { app.get_webview_window(OWN_LABEL).into_iter().collect() };
     }
-    views.iter().filter(|v| !v.housed && !v.away).filter_map(|v| app.get_webview_window(&v.label)).collect()
+    views.iter().filter(|v| !v.resting && !v.housed && !v.away).filter_map(|v| app.get_webview_window(&v.label)).collect()
 }
 
 /// 손님 동물 창들
@@ -1268,6 +1339,12 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], favorite: &FavoriteFood, housed
                     send_to_pet(app, label, Input::ResetGrowth(label.to_string()));
                 } else if let Some(label) = other.strip_prefix(LET_GO_PREFIX) {
                     send_to_pet(app, label, Input::RemovePet(label.to_string()));
+                } else if let Some(label) = other.strip_prefix(REST_PREFIX) {
+                    send(app, Input::RestPet(label.to_string()));
+                } else if let Some(uid) = other.strip_prefix(WAKE_PREFIX) {
+                    send(app, Input::WakePet(uid.to_string()));
+                } else if let Some(uid) = other.strip_prefix(LET_GO_REST_PREFIX) {
+                    send(app, Input::LetGoResting(uid.to_string()));
                 } else if let Some(id) = other.strip_prefix(ADD_PET_PREFIX) {
                     if let Some(entry) = app.state::<AppState>().pets.iter().find(|p| p.id == id).cloned() {
                         send(app, Input::AddPet(entry));

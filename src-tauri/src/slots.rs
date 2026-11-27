@@ -128,6 +128,8 @@ pub struct OwnTrack {
     pub ride: Option<screenpet_core::vehicle::VehicleKind>,
     /// 성장 멈추기 중 (게임 루프가 매 틱 돌보기에서 맞춤 — 친구에게 키우지 말라고 알림)
     pub locked: bool,
+    /// 이름 차례 (설정 자리, 전체 펫 수 — 💤 쉬는 펫도 셈. 게임 루프가 매 틱 맞춤 — own_name)
+    pub ord: (usize, usize),
 }
 
 /// 웹뷰가 아는 자기 동물 (`slot_info` 커맨드, `pet-stage` 이벤트)
@@ -280,6 +282,11 @@ impl Slot {
     /// 내 동물인지 봄
     pub fn is_own(&self) -> bool {
         matches!(self.role, Role::Own(_))
+    }
+
+    /// 메뉴·타임라인에 보일 내 펫 이름 ("둘째 고양이") — 차례는 설정 자리라 💤 쉬는 펫이 있어도 그대로
+    pub fn own_name(&self) -> String {
+        crate::tray::own_pet_name(self.track.ord.0, self.track.ord.1, &self.entry.manifest.name)
     }
 
     /// 내 펫이면 그 uid

@@ -117,7 +117,7 @@ def test_help_and_readme_tell_about_many_pets():
 def test_a_pet_tied_to_a_vehicle_sleigh_or_object_is_not_let_go():
     """보내 준 펫이 탈것 좌석·썰매·든 물건을 잡고 있으면 그 창·물건이 주인을 잃음"""
     loop = _text("game_loop.rs")
-    remove = loop[loop.index("Input::RemovePet(label) =>"):loop.index("Input::PickPet(label) =>")]
+    remove = loop[loop.index("Input::RemovePet(label) =>"):loop.index("Input::RestPet(label) =>")] + _fn(loop, "fn tied(")
     for check in ("riding()", "boarding()", "carried_object()", "sleigh.is_riding("):
         assert check in remove, check
 
@@ -125,8 +125,8 @@ def test_a_pet_tied_to_a_vehicle_sleigh_or_object_is_not_let_go():
 def test_control_follows_the_pet_that_inherits_the_lead_window():
     """첫 펫을 보내 주면 둘째가 "pet" 창을 물려받음 — 조종하던 둘째는 계속 조종되고, 조종하던 펫이 없어지면 두뇌도 조작 모드를 끔"""
     loop = _text("game_loop.rs")
-    remove = loop[loop.index("Input::RemovePet(label) =>"):loop.index("Input::PickPet(label) =>")]
-    assert "control_label = a[0].label.clone();" in remove
+    remove = loop[loop.index("Input::RemovePet(label) =>"):loop.index("Input::RestPet(label) =>")] + _fn(loop, "fn drop_own_slot(")
+    assert "*control_label = a[0].label.clone();" in remove
     lost = loop[loop.index("if control_on && control_i.is_none() {"):]
     lost = lost[: lost.index("control_on = false;")]
     assert "set_control(false)" in lost
@@ -209,7 +209,7 @@ def test_pet_menus_are_never_changed_under_a_lock_or_from_the_menu_click():
 def test_one_pet_has_no_extra_level_and_no_let_go():
     tray = _text("tray.rs")
     pet = _fn(tray, "fn build_pet_menu(")
-    assert "let let_go = if shape.many {" in pet
+    assert "let (rest, let_go) = if shape.many {" in pet
     shape = _fn(tray, "fn pet_shape(")
     assert "many: count > 1" in shape
 
@@ -282,3 +282,52 @@ def test_menu_actions_name_the_pet_and_do_nothing_if_it_is_gone():
     tray = _text("tray.rs")
     for sent in ("Input::RemovePet(label.to_string())", "Input::ResetGrowth(label.to_string())", "Input::ToggleLock(label.to_string())", "Input::ToggleControl(label.to_string())"):
         assert sent in tray, sent
+
+
+# ---- 💤 쉬게 하기 (2026-11-27) ----
+
+
+def test_a_pet_can_rest_and_come_back_from_its_menu():
+    """기록은 남기고 화면에서만 빠짐 — 쉬는 펫 메뉴는 다시 데려오기와 보내 주기만"""
+    tray = _text("tray.rs")
+    assert '"💤 쉬게 하기"' in tray and '"다시 데려오기"' in tray and "(쉬는 중)" in tray
+    for input_ in ("Input::RestPet(", "Input::WakePet(", "Input::LetGoResting("):
+        assert input_ in tray, input_
+    # 쉬는 펫은 🎮 조작·보이는 창 목록·하우스 흐림에 들지 않음
+    assert "!v.resting" in _fn(tray, "fn sync_control(") and "!v.resting" in _fn(tray, "fn own_windows(")
+
+
+def test_resting_mirrors_letting_go_but_keeps_the_record():
+    loop = _text("game_loop.rs")
+    rest = loop[loop.index("Input::RestPet(label) =>"):loop.index("Input::WakePet(uid) =>")]
+    rest += _fn(loop, "fn drop_own_slot(") + _fn(loop, "fn in_transit_home(")
+    for check in ("network.own_busy(", "tied(", "is_going_home()", "config.rest_pet(", "swap_window(", "slots::close(", "save_config("):
+        assert check in rest, check
+    assert "remove_pet(" not in rest
+    wake = loop[loop.index("Input::WakePet(uid) =>"):loop.index("Input::LetGoResting(uid) =>")]
+    for check in ("config.wake_pet(", "out_position(", "slots::spawn_own(", "swap_window(", "set_focus(true)"):
+        assert check in wake, check
+    gone = loop[loop.index("Input::LetGoResting(uid) =>"):loop.index("Input::PickPet(label) =>")]
+    assert "resting" in gone and "config.remove_pet(" in gone
+
+
+def test_a_resting_pet_is_frozen_and_left_out():
+    loop = _text("game_loop.rs")
+    # 쉬는 펫은 배고파지지 않고 (코어 tick_care), 창을 다시 만들지 않고, 그날 키운 종류로 세지 않음
+    assert "config.tick_care(dt)" in loop and "p.care.tick(dt)" not in loop
+    assert "resting" in _fn(loop, "fn spawn_missing_pets(")
+    assert "out_species()" in _fn(loop, "fn stats_tick(")
+    assert "resting: true" in _fn(loop, "fn own_views(")
+
+
+def test_pet_names_keep_their_place_while_one_rests():
+    """첫째·둘째 차례는 슬롯 자리가 아니라 설정 자리 (쉬어도 같은 이름)"""
+    assert "own_pet_name(i, n," not in _text("game_loop.rs")
+    assert "own_pet_name(i, own.len()" not in _text("timeline.rs")
+    assert "own_pet_name(i, count" not in _text("network.rs")
+    assert "pub fn own_name(" in _text("slots.rs")
+
+
+def test_help_tells_about_resting():
+    help_ = (ROOT / "ui" / "help.html").read_text(encoding="utf-8")
+    assert "💤 쉬게 하기" in help_ and "다시 데려오기" in help_

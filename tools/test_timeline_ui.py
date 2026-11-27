@@ -140,7 +140,7 @@ def test_every_own_pet_is_tracked():
     assert "timeline.tick(&app, real_dt, &slots[..own_count(&slots)]" in rs
     assert "timeline.tick(&app, real_dt, &slots[OWN]" not in rs
     fx = (ROOT / "src-tauri" / "src" / "timeline.rs").read_text(encoding="utf-8")
-    assert "PetTimelines" in fx and "own_pet_name(" in fx and ".retain(" in fx
+    assert "PetTimelines" in fx and "own_name()" in fx and ".retain(" in fx
 
 
 def test_page_is_plain():

@@ -1,6 +1,8 @@
 //! 🐾🐾🐾 내 펫 여러 마리 (최대 `MAX_OWN_PETS`) — 설정의 `pets` 목록과 이사·더하기·빼기·종류 바꾸기
 //! 돌보기 상태(`Care`)는 종류가 아니라 펫 하나하나(`uid`)에 붙음. 첫 펫 = 대표 (창 라벨 `pet`)이고,
 //! 옛 버전으로 되돌려도 첫 펫이 그대로 보이게 옛 필드 `pet`·`care[첫 펫 종류]`도 계속 씀 (`sync_legacy`)
+//! 💤 쉬게 하기: 기록은 남기고 화면에서만 빠짐 (`resting` — 돌보기가 멈추고 대표가 되지 않음, 3마리 칸은 그대로 차지).
+//! 나온 펫이 늘 한 마리는 있음 (`rest_pet`·`remove_pet`이 막고, 모두 쉬는 설정이면 `settle_pets`가 첫 펫을 깨움)
 use serde::{Deserialize, Serialize};
 
 use crate::care::Care;
@@ -19,6 +21,9 @@ pub struct OwnPet {
     /// 이 펫의 돌보기 상태
     #[serde(default)]
     pub care: Care,
+    /// 💤 쉬는 중 (창이 없고 돌보기가 멈춤 — 꺼져 있으면 저장하지 않음)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resting: bool,
 }
 
 /// 펫 목록을 읽되 잘못된 항목은 건너뜀 — 하나 때문에 설정 전체를 버리지 않음
@@ -40,7 +45,7 @@ impl Config {
             if self.old_care.is_empty() {
                 self.old_care = self.care.iter().filter(|(k, _)| **k != species).map(|(k, v)| (k.clone(), v.clone())).collect();
             }
-            self.pets.push(OwnPet { uid: new_uid(), species, care });
+            self.pets.push(OwnPet { uid: new_uid(), species, care, resting: false });
             changed = true;
         }
         if self.pets.len() > MAX_OWN_PETS {
@@ -59,12 +64,81 @@ impl Config {
             }
             seen.push(p.uid.clone());
         }
+        // 💤 모두 쉬는 중이면 첫 펫을 깨움 (나온 펫이 늘 한 마리는 있음)
+        if self.out_count() == 0 {
+            if let Some(p) = self.pets.first_mut() {
+                p.resting = false;
+                changed = true;
+            }
+        }
         changed
     }
 
-    /// 첫 펫 (대표) — settle_pets 뒤로는 늘 있음
+    /// 대표 펫 = 쉬지 않는 첫 펫 ("pet" 창·📱 내 다른 컴퓨터와 나누기·옛 필드) — settle_pets 뒤로는 늘 있음
     pub fn lead_pet(&self) -> Option<&OwnPet> {
-        self.pets.first()
+        self.out_pets().next().or(self.pets.first())
+    }
+
+    /// 💤 화면에 나와 있는 (쉬지 않는) 펫들, 설정 차례대로
+    pub fn out_pets(&self) -> impl Iterator<Item = &OwnPet> {
+        self.pets.iter().filter(|p| !p.resting)
+    }
+
+    /// 💤 나와 있는 펫 수
+    pub fn out_count(&self) -> usize {
+        self.out_pets().count()
+    }
+
+    /// 💤 나와 있는 펫 중 몇째인지 (= 내 펫 슬롯 자리 — 슬롯은 나온 펫을 설정 차례대로 둠). 쉬는 중이거나 없으면 None
+    pub fn out_position(&self, uid: &str) -> Option<usize> {
+        self.out_pets().position(|p| p.uid == uid)
+    }
+
+    /// 메뉴 이름의 차례 (설정 자리, 전체 펫 수) — 쉬어도 바뀌지 않음 (tray::own_pet_name)
+    pub fn pet_ordinal(&self, uid: &str) -> Option<(usize, usize)> {
+        self.pets.iter().position(|p| p.uid == uid).map(|i| (i, self.pets.len()))
+    }
+
+    /// 📊 나와 있는 펫들의 종류 (그날 키운 종류로 셈 — 쉬는 펫은 빼고)
+    pub fn out_species(&self) -> Vec<&str> {
+        self.out_pets().map(|p| p.species.as_str()).collect()
+    }
+
+    /// 💤 이 펫을 쉬게 할 수 있음: 나와 있고, 다른 펫이 하나 이상 나와 있음
+    pub fn can_rest(&self, uid: &str) -> bool {
+        self.own_pet(uid).is_some_and(|p| !p.resting) && self.out_count() >= 2
+    }
+
+    /// 💤 쉬게 함 (기록은 그대로). 못 하면 false (can_rest)
+    pub fn rest_pet(&mut self, uid: &str) -> bool {
+        if !self.can_rest(uid) {
+            return false;
+        }
+        match self.own_pet_mut(uid) {
+            Some(p) => {
+                p.resting = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 💤 쉬던 펫을 다시 데려옴 (돌보기는 쉬게 한 그때 그대로). 쉬는 중이 아니거나 없으면 false
+    pub fn wake_pet(&mut self, uid: &str) -> bool {
+        match self.own_pet_mut(uid) {
+            Some(p) if p.resting => {
+                p.resting = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 🐾🐾🐾 나와 있는 펫마다 dt초만큼 배고파짐 (쉬는 펫은 멈춤 — 다시 나와도 쉰 시간은 셈하지 않음)
+    pub fn tick_care(&mut self, dt: f64) {
+        for p in self.pets.iter_mut().filter(|p| !p.resting) {
+            p.care.tick(dt);
+        }
     }
 
     /// uid의 펫
@@ -85,16 +159,19 @@ impl Config {
         }
         let raised = self.pets.iter().any(|p| p.species == species);
         let care = if raised { Care::default() } else { self.old_care.remove(species).unwrap_or_default() };
-        self.pets.push(OwnPet { uid, species: species.to_string(), care });
+        self.pets.push(OwnPet { uid, species: species.to_string(), care, resting: false });
         Some(self.pets.len() - 1)
     }
 
-    /// 펫을 보내 줌 (목록에서 뺌). 마지막 한 마리이거나 없는 펫이면 false
+    /// 펫을 보내 줌 (목록에서 뺌). 마지막 한 마리·나와 있는 마지막 펫 (💤 나머지는 쉬는 중)·없는 펫이면 false
     pub fn remove_pet(&mut self, uid: &str) -> bool {
         if self.pets.len() <= 1 {
             return false;
         }
         let Some(i) = self.pets.iter().position(|p| p.uid == uid) else { return false };
+        if !self.pets[i].resting && self.out_count() <= 1 {
+            return false;
+        }
         self.pets.remove(i);
         true
     }
@@ -110,10 +187,10 @@ impl Config {
         }
     }
 
-    /// 옛 필드를 첫 펫으로 맞춤 (저장 직전): `pet` = 첫 펫 종류, `care` = 남은 예전 기록 + 첫 펫 돌보기 —
+    /// 옛 필드를 대표 펫(💤 쉬지 않는 첫 펫)으로 맞춤 (저장 직전): `pet` = 대표 종류, `care` = 남은 예전 기록 + 대표 돌보기 —
     /// 옛 버전으로 되돌려도 첫 펫이 그대로 보임. `care`는 늘 새로 만듦 (보내 준 첫 펫·바꾸기 전 종류의 복사본이 남지 않음)
     pub fn sync_legacy(&mut self) {
-        if let Some(lead) = self.pets.first() {
+        if let Some(lead) = self.lead_pet().cloned() {
             self.pet = Some(lead.species.clone());
             self.care = self.old_care.clone();
             self.care.insert(lead.species.clone(), lead.care.clone());
@@ -345,5 +422,125 @@ mod tests {
         back.settle_pets(known, "cat", uids());
         back.add_pet("rabbit", "z".into());
         assert_eq!(back.own_pet("z").unwrap().care.stage, Stage::Child);
+    }
+
+    // ---- 💤 쉬게 하기 (2026-11-27) ----
+
+    /// 테스트: 고양이(u1)·토끼(b)·흐물이(c) 셋
+    fn three() -> Config {
+        let mut c = Config::default();
+        c.settle_pets(known, "cat", uids());
+        c.add_pet("rabbit", "b".into());
+        c.add_pet("heumul", "c".into());
+        c
+    }
+
+    #[test]
+    fn resting_is_saved_only_when_on_and_old_configs_load() {
+        let mut c = three();
+        assert!(!serde_json::to_string(&c).unwrap().contains("resting"), "not written while false");
+        assert!(c.rest_pet("b"));
+        let text = serde_json::to_string(&c).unwrap();
+        assert!(text.contains(r#""resting":true"#));
+        let back: Config = serde_json::from_str(&text).unwrap();
+        assert!(back.own_pet("b").unwrap().resting);
+        let old: Config = serde_json::from_str(r#"{"pets":[{"uid":"a","species":"cat"}]}"#).unwrap();
+        assert!(!old.pets[0].resting);
+    }
+
+    #[test]
+    fn a_pet_rests_only_while_another_stays_out() {
+        let mut c = Config::default();
+        c.settle_pets(known, "cat", uids());
+        assert!(!c.can_rest("u1") && !c.rest_pet("u1"), "the only pet");
+        c.add_pet("rabbit", "b".into());
+        assert!(c.can_rest("u1") && c.can_rest("b"));
+        assert!(c.rest_pet("b"));
+        assert!(!c.rest_pet("b"), "already resting");
+        assert!(!c.can_rest("u1") && !c.rest_pet("u1"), "the last pet out");
+        assert!(!c.rest_pet("nobody"));
+        assert_eq!(c.out_count(), 1);
+    }
+
+    #[test]
+    fn a_resting_pet_keeps_its_record_and_comes_back_as_it_was() {
+        let mut c = three();
+        {
+            let b = c.own_pet_mut("b").unwrap();
+            b.care = Care { stage: Stage::Teenager, stamina: 2.5, fullness: 0.4, locked: true };
+        }
+        let before = c.own_pet("b").unwrap().care.clone();
+        assert!(c.rest_pet("b"));
+        // 쉬는 동안엔 배고파지지 않음 (나온 펫만)
+        let out_before = c.own_pet("u1").unwrap().care.fullness;
+        c.tick_care(600.0);
+        assert_eq!(c.own_pet("b").unwrap().care, before, "frozen while resting");
+        assert!(c.own_pet("u1").unwrap().care.fullness < out_before, "out pets still get hungry");
+        assert!(!c.wake_pet("u1"), "not resting");
+        assert!(!c.wake_pet("nobody"));
+        assert!(c.wake_pet("b"));
+        assert_eq!(c.own_pet("b").unwrap().care, before);
+        assert!(!c.own_pet("b").unwrap().resting);
+    }
+
+    #[test]
+    fn resting_pets_still_fill_the_three_places() {
+        let mut c = three();
+        c.rest_pet("b");
+        c.rest_pet("c");
+        assert_eq!(c.add_pet("cat", "d".into()), None);
+        assert_eq!(c.pets.len(), MAX_OWN_PETS);
+    }
+
+    #[test]
+    fn the_lead_is_the_first_pet_out_and_the_old_fields_follow_it() {
+        let mut c = three();
+        assert!(c.rest_pet("u1"));
+        assert_eq!(c.lead_pet().unwrap().uid, "b");
+        c.sync_legacy();
+        assert_eq!(c.pet.as_deref(), Some("rabbit"));
+        let out: Vec<&str> = c.out_pets().map(|p| p.uid.as_str()).collect();
+        assert_eq!(out, vec!["b", "c"]);
+        // 다시 데려오면 설정 차례대로 맨 앞 (나온 펫 중 0번째)
+        assert_eq!(c.out_position("u1"), None, "resting");
+        c.wake_pet("u1");
+        assert_eq!(c.out_position("u1"), Some(0));
+        assert_eq!(c.out_position("c"), Some(2));
+        assert_eq!(c.lead_pet().unwrap().uid, "u1");
+    }
+
+    #[test]
+    fn ordinals_stay_the_same_while_a_pet_rests() {
+        let mut c = three();
+        c.rest_pet("b");
+        assert_eq!(c.pet_ordinal("c"), Some((2, 3)), "still the third");
+        assert_eq!(c.pet_ordinal("b"), Some((1, 3)));
+        assert_eq!(c.pet_ordinal("nobody"), None);
+    }
+
+    #[test]
+    fn the_last_pet_out_cannot_be_let_go_but_a_resting_one_can() {
+        let mut c = three();
+        c.rest_pet("b");
+        c.rest_pet("c");
+        assert!(!c.remove_pet("u1"), "would leave only resting pets");
+        assert!(c.remove_pet("b"));
+        assert_eq!(c.pets.len(), 2);
+        assert_eq!(c.lead_pet().unwrap().uid, "u1");
+    }
+
+    #[test]
+    fn if_every_pet_rests_the_first_wakes_at_start() {
+        let mut c: Config = serde_json::from_str(r#"{"pets":[{"uid":"a","species":"cat","resting":true},{"uid":"b","species":"rabbit","resting":true}]}"#).unwrap();
+        assert!(c.settle_pets(known, "cat", uids()));
+        assert!(!c.pets[0].resting && c.pets[1].resting);
+        assert!(!c.settle_pets(known, "cat", uids()), "settled");
+    }
+
+    #[test]
+    fn only_pets_out_count_as_kept_kinds() {
+        let mut c = three();
+        c.rest_pet("b");
+        assert_eq!(c.out_species(), vec!["cat", "heumul"]);
     }
 }

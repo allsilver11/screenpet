@@ -44,14 +44,14 @@ impl TimelineFx {
     /// own = 내 펫 슬롯들 (메뉴 순서), away_friend = 펫 uid → 가 있는 친구 id
     pub fn tick<'a>(&mut self, app: &AppHandle, real_dt: f64, own: &[Slot], away_friend: impl Fn(&str) -> Option<&'a str>, config: &Config) {
         self.pets.clear();
-        for (i, slot) in own.iter().enumerate() {
+        for slot in own {
             let Some(uid) = slot.uid() else { continue };
             // 하우스에서 나와 문 앞에서 먹고 다시 들어갈 참이면 하우스로 셈 (잠깐 나온 걸 놀기로 쪼개지 않음)
             let housed = slot.pet.is_housed() || slot.pet.returns_home();
             self.timeline.tick(uid, timeline::place_of(housed, slot.pet.is_away(), away_friend(uid)), real_dt);
-            self.pets.push((uid.to_string(), crate::tray::own_pet_name(i, own.len(), &slot.entry.manifest.name)));
+            self.pets.push((uid.to_string(), slot.own_name()));
         }
-        // 보내 준 펫의 기록은 버림
+        // 보내 준 펫·💤 쉬는 펫의 기록은 버림
         let uids: Vec<&str> = self.pets.iter().map(|(u, _)| u.as_str()).collect();
         self.timeline.retain(&uids);
         let now = Instant::now();

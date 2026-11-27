@@ -2812,11 +2812,9 @@ impl Network {
             self.send_note.remove(&uid);
         }
         // 🐾🐾🐾 펫마다 지금 보낼 수 있는지 (바뀌면 메뉴를 다시 그림)
-        let count = own_slots.len();
         let own_menu: Vec<(String, String, bool)> = own_slots
             .iter()
-            .enumerate()
-            .map(|(i, s)| (s.uid().unwrap_or_default().to_string(), crate::tray::own_pet_name(i, count, &s.entry.manifest.name), self.own_free(s)))
+            .map(|s| (s.uid().unwrap_or_default().to_string(), s.own_name(), self.own_free(s)))
             .collect();
         if own_menu != self.own_menu {
             self.own_menu = own_menu;
