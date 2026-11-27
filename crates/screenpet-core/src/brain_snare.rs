@@ -5,6 +5,7 @@
 //! - 🕸️ 거미집: 앱이 화면의 거미집을 set_webs로 알려 줌 → 거미인간이 아닌 동물의 몸 (가운데·발)이 거미집 안으로 막 들어오면
 //!   SNARE_CHANCE로 걸려 버둥버둥 ("help!") → SNARE_SECS 뒤 찢고 빠져나옴 (take_torn_web — 앱이 그 거미집을 지움).
 //!   빠져나온 뒤 SNARE_IMMUNE_SECS 동안은 안 걸림. 가려진 거미집은 안 걸림. 걸린 거미집이 사라지면 그냥 풀려남.
+//! - 🕸️🖱️ 손으로: 사용자가 끌어다 거미집 위에 놓으면 (snare_on_drop — 나는 동물도) 또는 던져서 날아가다 거미집에 들어가면 물건처럼 무조건 걸림.
 //! - 🕸️ "팅~": 걸리는 순간 그림이 들어온 쪽으로 늘어났다 출렁 (web::snag_spring — 몸 자리는 그대로, snare_offset을 window_pos에 더함) 뒤 살랑살랑.
 //! - 거미인간은 어느 거미인간의 거미집에도 안 걸림 (snare_ok·maybe_snare — cfg.slings_webs면 모두). 놀러 올라가는 건 brain_web.rs 거미집 놀이.
 //! - 클릭: 걸린 동물을 누르면 바로 풀어 줌 ("thanks!" — pointer_down이 free_stuck을 부름. 거미집은 찢어짐).
@@ -125,25 +126,38 @@ impl Pet {
             .collect()
     }
 
-    /// 🕸️ 거미집 안으로 막 들어왔으면 (지난번엔 밖) 하나마다 chance로 걸림. 걸렸으면 true
+    /// 🕸️ 거미집 안으로 막 들어왔으면 (지난번엔 밖) 하나마다 chance로 걸림 — 손에서 던져져 나는 중이면 (thrown) 들어 있기만 해도 무조건. 걸렸으면 true
     fn maybe_snare(&mut self) -> bool {
         if self.cfg.slings_webs || self.snare.webs.is_empty() {
             self.snare.inside.clear();
             return false;
         }
+        let flung = self.thrown && matches!(self.state, State::Air { .. });
         let now = self.webs_touching();
-        let fresh: Vec<u64> = now.iter().copied().filter(|id| !self.snare.inside.contains(id)).collect();
+        let fresh: Vec<u64> = if flung { now.clone() } else { now.iter().copied().filter(|id| !self.snare.inside.contains(id)).collect() };
         self.snare.inside = now;
         if fresh.is_empty() || self.clock < self.snare.immune_until || !self.snare_ok() {
             return false;
         }
         for id in fresh {
-            if self.snare.rng.f64() < self.snare.chance {
+            if flung || self.snare.rng.f64() < self.snare.chance {
                 self.get_snared(id);
                 return true;
             }
         }
         false
+    }
+
+    /// 🕸️🖱️ 사용자가 끌어 놓은 순간 (pointer_up): 몸이 보이는 거미집 안이면 물건처럼 무조건 걸림 — 나는 동물도. 거미인간·막 빠져나온 동물은 빼고. 걸렸으면 true
+    pub(super) fn snare_on_drop(&mut self) -> bool {
+        if self.cfg.slings_webs || self.clock < self.snare.immune_until || self.is_controlled() || self.rider_on || self.juggle.carry.is_some() {
+            return false;
+        }
+        let now = self.webs_touching();
+        let Some(&id) = now.first() else { return false };
+        self.snare.inside = now;
+        self.get_snared(id);
+        true
     }
 
     /// 🕸️ 거미집(id)에 걸림 ("help!") — 그 자리에서 멈춤

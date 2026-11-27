@@ -422,3 +422,93 @@ fn spiders_walking_or_falling_into_any_web_are_never_snared() {
         assert!(walker.take_torn_web().is_none() && faller.take_torn_web().is_none());
     }
 }
+
+/// 마우스로 (x, y)까지 끌고 가 잠깐 멈췄다 놓음 (몸 발끝 기준 — 잡은 자리는 발끝)
+fn drag_and_drop(p: &mut Pet, w: &World, to: (f64, f64)) {
+    let (sx, sy) = (p.body.x, p.body.y);
+    p.pointer_down(sx, sy);
+    p.pointer_move(sx + 20.0, sy - 20.0);
+    p.pointer_move(to.0, to.1);
+    for _ in 0..30 {
+        p.update(DT, w);
+        p.pointer_move(to.0, to.1);
+    }
+    assert_eq!(p.state, State::Dragged);
+    p.pointer_up(to.0, to.1);
+}
+
+#[test]
+fn a_pet_dropped_onto_a_web_always_sticks_then_wriggles_free() {
+    let w = world(vec![]);
+    let size = pet_cfg().size;
+    // 걸리기 주사위가 0이어도 손으로 놓으면 무조건 걸림 (물건처럼)
+    let mut p = cat_at(900.0, 4, 0.0, &w);
+    p.set_webs(&[floor_web(5, 3.0, size)]);
+    drag_and_drop(&mut p, &w, (1920.0 - 1.0 * size, 1040.0 - 1.0 * size));
+    p.update(DT, &w);
+    assert!(snared(&p), "놓자마자 걸림 {:?}", p.state);
+    assert_eq!(p.render().anim, Anim::Dragged);
+    let y = p.body.y;
+    let mut guard = LoopLimit::new();
+    let mut secs = 0.0;
+    while snared(&p) {
+        guard.step();
+        p.update(DT, &w);
+        secs += DT;
+        assert_eq!(p.body.y, y, "걸린 동안 공중에 그대로");
+    }
+    assert!(secs >= web::SNARE_SECS.0 - 0.1, "한동안 매달림 {secs}");
+    assert_eq!(p.take_torn_web(), Some(5), "빠져나오며 찢음");
+}
+
+#[test]
+fn a_pet_dropped_outside_a_web_or_a_spider_dropped_into_one_does_not_stick() {
+    let w = world(vec![]);
+    let size = pet_cfg().size;
+    let mut cat = cat_at(900.0, 4, 0.0, &w);
+    cat.set_webs(&[floor_web(5, 3.0, size)]);
+    drag_and_drop(&mut cat, &w, (700.0, 600.0));
+    let mut spider = calm_spider(900.0, 6, &w);
+    let ss = spider.cfg.size;
+    spider.set_webs(&[floor_web(6, 3.0, ss)]);
+    drag_and_drop(&mut spider, &w, (1920.0 - 1.0 * ss, 1040.0 - 1.0 * ss));
+    for _ in 0..(60 * 2) {
+        cat.update(DT, &w);
+        spider.update(DT, &w);
+        assert!(!cat.is_stuck() && !spider.is_stuck());
+    }
+}
+
+#[test]
+fn a_flying_pet_dropped_onto_a_web_sticks_too() {
+    let w = world(vec![]);
+    let cfg = PetConfig { flies: true, ..pet_cfg() };
+    let size = cfg.size;
+    let mut bird = resting(cfg, 900.0, 7, &w);
+    bird.snare.chance = 0.0;
+    bird.set_webs(&[floor_web(8, 3.0, size)]);
+    drag_and_drop(&mut bird, &w, (1920.0 - 1.0 * size, 1040.0 - 1.0 * size));
+    bird.update(DT, &w);
+    assert!(snared(&bird), "{:?}", bird.state);
+}
+
+#[test]
+fn a_pet_thrown_through_a_web_is_caught_in_flight() {
+    let w = world(vec![]);
+    let size = pet_cfg().size;
+    let mut p = cat_at(900.0, 9, 0.0, &w);
+    p.standing = None;
+    p.body.x = 1920.0 - 6.0 * size;
+    p.body.y = 1040.0 - 1.5 * size;
+    p.body.vx = 900.0;
+    p.body.vy = 0.0;
+    p.thrown = true;
+    p.state = State::Air { anim: Anim::Fall };
+    p.set_webs(&[floor_web(10, 3.0, size)]);
+    let mut guard = LoopLimit::new();
+    while !snared(&p) {
+        guard.step();
+        p.update(DT, &w);
+        assert!(p.standing.is_none(), "바닥에 닿기 전에 걸림 {:?}", p.state);
+    }
+}

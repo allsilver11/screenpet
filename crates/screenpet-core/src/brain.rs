@@ -3076,6 +3076,8 @@ impl Pet {
                 self.gentle_drop = crate::collide::logical_speed(vx, vy, self.cfg.dpi) < crate::collide::HIT_MIN_SPEED;
                 self.thrown_down = visit::aimed_down(vx, vy, self.cfg.dpi);
                 self.drop_check = true;
+                // 🕸️ 거미집 위에 놓았으면 바로 걸림 (brain_snare.rs)
+                self.snare_on_drop();
             }
             _ => {}
         }
