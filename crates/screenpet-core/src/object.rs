@@ -620,6 +620,12 @@ impl Object {
         self.phase == Phase::Held
     }
 
+    /// 🖐️ 들고 문지르는 중이면 서리를 닦는 자리 (가운데 x, y, 반지름 — 물리 px). 바닥에 놓였거나 날아가면 None (brain_dementor.rs wipe_frost)
+    pub fn wipe_spot(&self) -> Option<(f64, f64, f64)> {
+        let (hw, h) = self.hit_box();
+        self.is_held().then(|| (self.body.x, self.body.y - h / 2.0, 0.8 * hw))
+    }
+
     /// 땅에서 구르는 중 (눕기 전)
     #[cfg(test)]
     pub fn is_rolling(&self) -> bool {

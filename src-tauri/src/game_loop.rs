@@ -1546,9 +1546,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                 }
             }
         }
-        // 🖐️ 펫을 들고 디멘터 서리 위를 문지르면 김 서린 유리를 손가락으로 그은 듯 지나간 자리만 닦임 (코어 brain_dementor.rs wipe_frost)
-        // (빨리 휙 그어도 끊기지 않게 지난 틱 자리부터 이어 닦음 — 새로 집은 펫은 지금 자리부터)
-        let wipe_spots: Vec<(String, (f64, f64), f64)> = slots.iter().filter(|s| s.on_screen()).filter_map(|s| s.pet.wipe_spot().map(|(x, y, r)| (s.label.clone(), (x, y), r))).collect();
+        // 🖐️ 펫·똥·물건을 들고 디멘터 서리 위를 문지르면 김 서린 유리를 손가락으로 그은 듯 지나간 자리만 닦임 (코어 brain_dementor.rs wipe_frost)
+        // (빨리 휙 그어도 끊기지 않게 지난 틱 자리부터 이어 닦음 — 새로 집은 것은 지금 자리부터)
+        let mut wipe_spots: Vec<(String, (f64, f64), f64)> = slots.iter().filter(|s| s.on_screen()).filter_map(|s| s.pet.wipe_spot().map(|(x, y, r)| (s.label.clone(), (x, y), r))).collect();
+        objects.wipe_spots(&mut wipe_spots);
         for (label, at, r) in &wipe_spots {
             let from = wipe_from.iter().find(|(l, _)| l == label).map_or(*at, |(_, p)| *p);
             for s in slots.iter_mut() {

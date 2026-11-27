@@ -595,6 +595,11 @@ impl Objects {
         out.extend(self.live.iter().filter_map(|l| l.object.poop_spot(l.id)));
     }
 
+    /// 🖐️ 들고 있는 물건·똥이 서리를 닦는 자리 (창 라벨, 가운데, 반지름 — 물리 px)를 out에 더함
+    pub fn wipe_spots(&self, out: &mut Vec<(String, (f64, f64), f64)>) {
+        out.extend(self.live.iter().filter_map(|l| l.object.wipe_spot().map(|(x, y, r)| (l.label.clone(), (x, y), r))));
+    }
+
     /// 🤹 바닥에 놓인 물건 자리를 out에 다시 채움 (흐물이가 주우러 감)
     pub fn object_spots(&self, out: &mut Vec<ObjectSpot>) {
         out.clear();

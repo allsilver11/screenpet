@@ -2276,3 +2276,24 @@ fn a_fresh_toy_icon_floats_up_from_where_it_was_made() {
     held.pointer_down(800.0, 1030.0);
     assert!(held.is_held() && !held.float_up(100.0, 3.0));
 }
+
+#[test]
+fn a_held_object_or_poop_wipes_dementor_frost_where_it_is_rubbed() {
+    // 사용자: 성에를 펫으로뿐 아니라 똥·물건으로도 지워지게
+    let w = floor();
+    for kind in [ObjectKind::Can, ObjectKind::Poop, ObjectKind::GiantPoop] {
+        let mut o = Object::new(kind, 800.0, 1040.0, 1.0, 1);
+        if kind.is_giant() {
+            o.set_scale(kind.scale_on(1.0, 1040.0));
+        }
+        run(&mut o, &w, 0.5);
+        assert_eq!(o.wipe_spot(), None, "{kind:?}: lying on the floor wipes nothing");
+        o.pointer_down(800.0, 1000.0);
+        o.pointer_move(700.0, 600.0);
+        o.tick(DT, &w, NONE, false);
+        let (x, y, r) = o.wipe_spot().expect("held");
+        let (hw, h) = o.hit_box();
+        assert!((x - o.body.x).abs() < 1e-9 && (y - (o.body.y - h / 2.0)).abs() < 1e-9, "{kind:?}: the middle of the thing");
+        assert!(r > 0.0 && r <= hw, "{kind:?}: about the thing's own size ({r} vs {hw})");
+    }
+}
