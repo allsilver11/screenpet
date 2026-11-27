@@ -42,7 +42,7 @@ def test_timing_matches_the_core():
     core = {k: float(v) for k, v in re.findall(r"pub const (WEB_LIFE_SECS|MAX_WEBS): \w+ = ([\d.]+);", CORE_WEB)}
     assert nums["WEB_LIFE"] == core["WEB_LIFE_SECS"] and nums["MAX_WEBS"] == core["MAX_WEBS"]
     # 앱은 거미집이 다 흐려질 때까지 창을 둔다 (WEB_LIFE_SECS + WEB_FADE)
-    assert f"WEB_LIFE_SECS as u64 + {int(nums['WEB_FADE'])}" in RS
+    assert f"const WEB_FADE: Duration = Duration::from_secs({int(nums['WEB_FADE'])});" in RS and "Duration::from_secs(WEB_LIFE_SECS as u64).saturating_add(WEB_FADE)" in RS
     assert "setInterval" not in JS and "innerHTML" not in JS
 
 
@@ -76,7 +76,9 @@ def test_window_webs_follow_their_window():
 def test_pets_learn_the_webs_and_torn_webs_are_dropped():
     """🕸️ 거미집에 걸리기 (코어 brain_snare.rs): 게임 루프가 거미집 자리를 모든 동물 뇌에 알려 주고, 찢고 나온 거미집은 지운다."""
     spots = RS[RS.index("pub fn web_spots(") : RS.index("pub fn tear_web(")]
-    assert "WebSpot { id: t.id, x: t.x, y: t.y, corner: t.corner, size: t.size, hidden: t.hidden || paused }" in spots
+    assert "WebSpot { id: t.id, x: t.x, y: t.y, corner: t.corner, size: t.size, hidden: t.hidden || paused || fading }" in spots
+    # 흐려지기 시작하면 (web.js life 뒤) 안 보이는 것으로 침 — 걸린 펫·물건이 보이지 않는 거미집에 떠 있지 않게
+    assert "let fading = fading_from >= t.until;" in spots and "Instant::now() + WEB_FADE" in spots
     tear = RS[RS.index("pub fn tear_web(") : RS.index("pub fn sweep_webs(")]
     assert "o.webs.retain(|(_, w)| w.id != id)" in tear, "아직 안 보낸 거미집도 버림"
     assert "self.webs.remove(i)" in tear and '"trail-web-drop", [t.id]' in tear

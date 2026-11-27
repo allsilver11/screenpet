@@ -51,8 +51,10 @@ const DOODLE_LIFE: Duration = Duration::from_millis((DOODLE_SECS * 1000.0) as u6
 const DOODLE_HEIGHT: f64 = 0.5;
 /// 이름 낙서는 이만큼 글자까지 (doodle.js MAX_NAME과 같음)
 const MAX_NAME: usize = 12;
-/// 🕷️ 거미집이 화면에 있는 시간 (web.js: 남는 시간 life + 흐려지기 WEB_FADE 4초) — 이 동안 창을 닫지 않음
-const WEB_LIFE: Duration = Duration::from_secs(WEB_LIFE_SECS as u64 + 4);
+/// 🕷️ 거미집이 흐려지며 사라지는 시간 (web.js WEB_FADE) — 이때부터는 안 보이는 것으로 침 (걸린 펫·물건이 떨어짐)
+const WEB_FADE: Duration = Duration::from_secs(4);
+/// 🕷️ 거미집이 화면에 있는 시간 (web.js: 남는 시간 life + 흐려지기 WEB_FADE) — 이 동안 창을 닫지 않음
+const WEB_LIFE: Duration = Duration::from_secs(WEB_LIFE_SECS as u64).saturating_add(WEB_FADE);
 /// 🧹 지운 거미집이 흐려지는 동안 (web.js WEB_DROP 0.8초) 창을 더 둠
 const WEB_DROP: Duration = Duration::from_millis(1200);
 /// 🕷️ 줄을 다시 보내는 가장 짧은 간격 (웹뷰는 받은 줄을 rAF로 그림)
@@ -540,13 +542,16 @@ impl TrailFx {
         self.webs.clear();
     }
 
-    /// 🕸️ 화면에 있는 거미집들 (물리 px) — 동물 뇌가 걸리는지 봄 (코어 Pet::set_webs). 앞 창에 가려졌거나 전체 화면으로 숨긴 덮개 창의 것은 hidden
+    /// 🕸️ 화면에 있는 거미집들 (물리 px) — 동물 뇌가 걸리는지 봄 (코어 Pet::set_webs). 앞 창에 가려졌거나 전체 화면으로 숨긴 덮개 창의 것,
+    /// 흐려지며 사라지는 중인 것은 hidden (걸린 펫·물건은 떨어짐)
     pub fn web_spots(&self) -> Vec<WebSpot> {
+        let fading_from = Instant::now() + WEB_FADE;
         self.webs
             .iter()
             .map(|t| {
                 let paused = self.overlays.iter().any(|o| o.label == t.label && o.paused);
-                WebSpot { id: t.id, x: t.x, y: t.y, corner: t.corner, size: t.size, hidden: t.hidden || paused }
+                let fading = fading_from >= t.until;
+                WebSpot { id: t.id, x: t.x, y: t.y, corner: t.corner, size: t.size, hidden: t.hidden || paused || fading }
             })
             .collect()
     }

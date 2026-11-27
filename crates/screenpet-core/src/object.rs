@@ -4,7 +4,7 @@
 //! 던지기 전에 포스트잇을 붙일 수 있음: 받는 사람이 누르면 10초 보이고 영영 사라짐
 //! 대부분의 시간엔 잠들어 있음 (`is_asleep`): 앱은 창도 웹뷰도 건드리지 않음
 //! 🕸️ 거미집에 걸림 (spec 5부): 날거나 떨어지거나 구르다 보이는 거미집 안으로 들어오면 무조건 걸려 매달림 (Phase::Snagged) —
-//! "팅~" 출렁 (web::snag_spring) 뒤 살랑살랑, 거미집이 사라지면 떨어지고 옮겨 가면 따라감, 잡아 끌면 빠지고 web::SNAG_IMMUNE_SECS 동안은 다시 안 걸림.
+//! "팅~" 출렁 (web::snag_spring) 뒤 살랑살랑, 거미집이 사라지거나 안 보이면 떨어지고 옮겨 가면 따라감, 잡아 끌면 빠지고 web::SNAG_IMMUNE_SECS 동안은 다시 안 걸림.
 //! 거미집 자리는 앱이 틱마다 set_webs로 알려 줌. 사용자가 잡은 것·동물이 든 것·회오리 속인 것은 안 걸림
 
 use std::collections::VecDeque;
@@ -1131,9 +1131,9 @@ impl Object {
         self.spin = 0.0;
     }
 
-    /// 🕸️ 매달린 한 틱: 거미집 자리를 따라가며 "팅~" 출렁 뒤 살랑살랑. 거미집이 사라졌으면 그 자리에서 떨어짐
+    /// 🕸️ 매달린 한 틱: 거미집 자리를 따라가며 "팅~" 출렁 뒤 살랑살랑. 거미집이 사라졌거나 안 보이면 (앞 창에 가려짐·흐려지는 중) 그 자리에서 떨어짐
     fn tick_snag(&mut self, dt: f64, id: u64, rel: (f64, f64), dir: (f64, f64), t: f64) {
-        let Some(w) = self.webs.iter().find(|w| w.id == id).copied() else {
+        let Some(w) = self.webs.iter().find(|w| w.id == id && !w.hidden).copied() else {
             self.snag_immune_until = self.clock + web::SNAG_IMMUNE_SECS;
             self.start_fall();
             return;

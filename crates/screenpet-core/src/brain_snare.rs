@@ -4,7 +4,7 @@
 //!   못 움직이고 버둥버둥 (render.wobble, "mmph!") — 실은 줄마다 한 겹 (render.cocoon, 웹뷰가 하얀 띠로 그림) → COCOON_SECS 뒤 뿅 ("free!").
 //! - 🕸️ 거미집: 앱이 화면의 거미집을 set_webs로 알려 줌 → 거미인간이 아닌 동물의 몸 (가운데·발)이 거미집 안으로 막 들어오면
 //!   SNARE_CHANCE로 걸려 버둥버둥 ("help!") → SNARE_SECS 뒤 찢고 빠져나옴 (take_torn_web — 앱이 그 거미집을 지움).
-//!   빠져나온 뒤 SNARE_IMMUNE_SECS 동안은 안 걸림. 가려진 거미집은 안 걸림. 걸린 거미집이 사라지면 그냥 풀려남.
+//!   빠져나온 뒤 SNARE_IMMUNE_SECS 동안은 안 걸림. 가려진 거미집은 안 걸림. 걸린 거미집이 사라지거나 안 보이면 그냥 풀려남.
 //! - 🕸️🎣 거미인간이 거미집으로 낚아챈 동물도 날아가는 동안 (sure_snare) 거미집에 들어가면 무조건 걸림 (brain_webpal.rs).
 //! - 🕸️🖱️ 손으로: 사용자가 끌어다 거미집 위에 놓으면 (snare_on_drop — 나는 동물도) 또는 던져서 날아가다 거미집에 들어가면 물건처럼 무조건 걸림.
 //! - 🕸️ "팅~": 걸리는 순간 그림이 들어온 쪽으로 늘어났다 출렁 (web::snag_spring — 몸 자리는 그대로, snare_offset을 window_pos에 더함) 뒤 살랑살랑.
@@ -210,7 +210,8 @@ impl Pet {
         }
         self.body.vx = 0.0;
         self.body.vy = 0.0;
-        let web_gone = matches!(kind, StuckKind::Snare { web } if !self.snare.webs.iter().any(|w| w.id == web));
+        // 거미집이 없어졌거나 안 보이면 (앞 창에 가려짐·흐려지는 중) 보이지 않는 거미집에 떠 있지 않게 풀림
+        let web_gone = matches!(kind, StuckKind::Snare { web } if !self.snare.webs.iter().any(|w| w.id == web && !w.hidden));
         if web_gone || self.housed || self.has_errand() || self.is_heading_out() || self.is_controlled() {
             self.snare_let_go(None);
             return;

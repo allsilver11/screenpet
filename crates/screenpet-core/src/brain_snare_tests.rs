@@ -341,6 +341,14 @@ fn a_freed_pet_is_immune_for_a_while_and_a_vanished_web_lets_go() {
     q.update(DT, &w);
     assert!(!snared(&q));
     assert_eq!(q.take_torn_web(), None);
+    // 걸린 거미집이 앞 창에 가려지거나 흐려져 안 보이게 돼도 (hidden) 풀려 떨어짐 — 보이지 않는 거미집에 매달려 떠 있지 않게
+    let mut r = cat_at(1920.0 - 0.6 * size, 4, 1.0, &w);
+    r.set_webs(&[floor_web(7, 2.0, size)]);
+    r.update(DT, &w);
+    assert!(snared(&r));
+    r.set_webs(&[WebSpot { hidden: true, ..floor_web(7, 2.0, size) }]);
+    r.update(DT, &w);
+    assert!(!snared(&r));
 }
 
 #[test]

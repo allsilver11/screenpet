@@ -197,3 +197,20 @@ fn a_falling_object_is_caught_by_a_round_web_too() {
     let (cx, cy) = centre(&o);
     assert!(cy < 500.0 && cx < 800.0, "원 왼쪽 위에서 걸림 {cx},{cy}");
 }
+
+#[test]
+fn it_drops_when_its_web_is_no_longer_shown() {
+    // 사용자: 거미줄은 없어졌는데 걸려 있던 물건이 계속 공중에 떠 있음 — 거미집이 앞 창에 가려지거나 흐려져 사라지는 중(hidden)이면
+    // 화면엔 거미집이 없으니 물건도 꼭 떨어져야 함
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Can, 800.0, 100.0, 1.0, 1);
+    let webs = [web_at(9, 700.0, 300.0, 300.0)];
+    assert!(fall_into(&mut o, &w, &webs));
+    let hidden = [WebSpot { hidden: true, ..webs[0] }];
+    tick(&mut o, &w, &hidden);
+    assert!(!o.is_snagged());
+    for _ in 0..(3.0 / DT) as usize {
+        tick(&mut o, &w, &hidden);
+    }
+    assert_eq!(o.body.y, 1040.0, "바닥까지 떨어짐");
+}
