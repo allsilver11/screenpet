@@ -118,7 +118,26 @@ def hood(view_, cx, cy, rot=0.0):
         return Part(shapes_, CLOAK, marks, outline=True, grow=0)
 
 
-def dementor(view_="side", *, dy=0.0, rot=0.0, hood_rot=0.0, flow=0.0, phase=0.0, arms=None, curl=(0.0, 0.0), open_=(True, True),
+TOP_ROOM = 3.0  # 칸 맨 위에서 이만큼(128 칸 px)은 비움 — 큰 단계의 후드·번쩍 든 손이 칸 위를 넘어 잘리지 않게
+SINK_STEP = 2.0  # 위가 닿으면 이만큼씩(그림 단위) 내려 다시 그림
+SINK_MAX = 12  # 내려 그리기 최대 횟수
+
+
+def dementor(view_="side", *, dy=0.0, **kw):
+    """디멘터 한 장 (_dementor). 몸(효과 빼고)이 칸 맨 위 TOP_ROOM 안까지 닿으면 닿지 않을 때까지 조금씩 내려 다시 그림 —
+    떠다니는 몸이라 아래(아랫단~바닥)에 틈이 있어서, 커진 단계·솟는 칸도 후드 꼭대기가 잘리지 않음."""
+    u = dp.out_u()
+    # 몸만 재 봄 (생각 풍선·z 같은 효과는 원래 칸 위쪽에 띄우는 것)
+    body_only = {**kw, "fx": ()}
+    for _ in range(SINK_MAX):
+        bbox = _dementor(view_, dy=dy, **body_only).getchannel("A").getbbox()
+        if bbox is None or bbox[1] >= TOP_ROOM * u:
+            break
+        dy += SINK_STEP
+    return _dementor(view_, dy=dy, **kw)
+
+
+def _dementor(view_="side", *, dy=0.0, rot=0.0, hood_rot=0.0, flow=0.0, phase=0.0, arms=None, curl=(0.0, 0.0), open_=(True, True),
              fx=(), held=(), whole=None, hem_up=0.0):
     """디멘터 한 장. view_: side (오른쪽을 봄) · front · dy: 위아래 (떠 있는 높이) · rot: 몸 기울기 (목 기준, 시계 방향) · hood_rot: 고개 ·
     flow: 아랫단이 뒤로 끌리는 정도 · phase: 아랫단 펄럭 · arms: [먼/왼, 가까운/오른] 소매 각도 (0 = 아래, 90 = 앞/오른쪽, 180 = 위) ·
@@ -342,7 +361,8 @@ DEMENTOR = Species(
     front_tail_color=CLOAK, tail_color=CLOAK, **dp.NO_COMMON_PARTS,
     specials=["lookup"], stage_size=dict.fromkeys(STAGES, 0.95), stripe=CLOAK_DARK,
     poses={k: (v if k == "roll" else dp._fit(v)) for k, v in DEMENTOR_POSES.items()}, outline=OUT,
-    stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},
+    # 어른은 조금 줄여 그림 (5%) — 커진 후드 꼭대기를 칸 안에 두려고 내려 그리면 아랫단이 바닥에 닿았음
+    stage_tweak={st: dict(fit=0.95 if st == "adult" else 1.0, pale=0.0) for st in STAGES},
 )
 
 

@@ -49,6 +49,19 @@ def test_every_frame_is_drawn_inside_the_cell_and_floats(out):
         assert_eat_has_no_bowl(out / "dementor" / f"sheet_{st}.png", dd.DEMENTOR)
 
 
+def test_the_hood_top_is_never_cut_off_as_it_grows(out):
+    # 사용자: 친구 디멘터가 어느 크기 이상 되니까 맨 위가 잘린다 — 큰 단계의 후드(와 솟을 때 번쩍 든 손)가 칸 위를 넘어 그릴 때 잘리고,
+    # 잘린 채로 1px 여백 안에 밀려 들어와 납작한 윗면이 됐었음. 모든 칸의 맨 윗줄은 위에서 2px 이상 떨어져야 함
+    for st in STAGES:
+        sheet = sheet_128(out / "dementor" / f"sheet_{st}.png")
+        for anim in names(dd.DEMENTOR):
+            for i in range(4):
+                a = np.asarray(cell(sheet, names(dd.DEMENTOR).index(anim), i).convert("RGBA"))[..., 3] > 100
+                rows = np.where(a.any(axis=1))[0]
+                if len(rows):
+                    assert rows[0] >= 2, f"{st} {anim} {i}: top row {rows[0]} ({int(a[rows[0]].sum())} px wide)"
+
+
 def test_manifest_is_a_flying_dementor(out):
     m = json.loads((out / "dementor" / "pet.json").read_text(encoding="utf-8"))
     assert m["name"] == "디멘터"
