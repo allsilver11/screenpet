@@ -171,6 +171,8 @@ impl Pet {
             State::Exit { .. } | State::Away => self.hoist.out_with,
             // 🧔 해그리드가 안았거나 사이드카에 태운 펫 (brain_hagrid.rs)
             State::Hagrid { .. } => self.hagrid_holding(),
+            // 🌉🤝 거미인간 그네에 태운 친구 (brain_webpal.rs)
+            State::Web { .. } => self.web_rider(),
             _ => None,
         }
     }
@@ -180,6 +182,9 @@ impl Pet {
         self.hoisting()?;
         if matches!(self.state, State::Hagrid { .. }) {
             return self.hagrid_hold_point();
+        }
+        if matches!(self.state, State::Web { .. }) {
+            return self.rider_point();
         }
         let g = &self.cfg.grip;
         let (gx, gy) = match self.state {
@@ -353,6 +358,10 @@ impl Pet {
         }
         if matches!(self.state, State::Hagrid { .. }) {
             self.hagrid_lost();
+            return;
+        }
+        if matches!(self.state, State::Web { .. }) {
+            self.lose_rider();
             return;
         }
         self.hoist.out_with = None;
@@ -574,6 +583,8 @@ pub type CarriedOut = (usize, usize, Side);
 pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut> {
     // 🕷️ 거미인간이 줄로 끌어온 동물을 날려 보냄 (앱은 이미 매 틱 이 함수를 부름)
     super::web_moves::sync_yanks(pets);
+    // 🌉🤝 그네에 태우기·놓기 · 🕸️🎣 거미집으로 낚아채기 (brain_webpal.rs)
+    super::webpal_moves::sync_pals(pets);
     // 🐛 거미인간이 고치로 감는 동물 (brain_snare.rs)
     super::snare_moves::sync_cocoons(pets);
     // ✨ 주문에 맞은 동물: 든 것을 떨어뜨리거나 둥둥 뜸 (brain_spell.rs)

@@ -5,6 +5,7 @@
 //! - 🕸️ 거미집: 앱이 화면의 거미집을 set_webs로 알려 줌 → 거미인간이 아닌 동물의 몸 (가운데·발)이 거미집 안으로 막 들어오면
 //!   SNARE_CHANCE로 걸려 버둥버둥 ("help!") → SNARE_SECS 뒤 찢고 빠져나옴 (take_torn_web — 앱이 그 거미집을 지움).
 //!   빠져나온 뒤 SNARE_IMMUNE_SECS 동안은 안 걸림. 가려진 거미집은 안 걸림. 걸린 거미집이 사라지면 그냥 풀려남.
+//! - 🕸️🎣 거미인간이 거미집으로 낚아챈 동물도 날아가는 동안 (sure_snare) 거미집에 들어가면 무조건 걸림 (brain_webpal.rs).
 //! - 🕸️🖱️ 손으로: 사용자가 끌어다 거미집 위에 놓으면 (snare_on_drop — 나는 동물도) 또는 던져서 날아가다 거미집에 들어가면 물건처럼 무조건 걸림.
 //! - 🕸️ "팅~": 걸리는 순간 그림이 들어온 쪽으로 늘어났다 출렁 (web::snag_spring — 몸 자리는 그대로, snare_offset을 window_pos에 더함) 뒤 살랑살랑.
 //! - 거미인간은 어느 거미인간의 거미집에도 안 걸림 (snare_ok·maybe_snare — cfg.slings_webs면 모두). 놀러 올라가는 건 brain_web.rs 거미집 놀이.
@@ -42,6 +43,8 @@ pub struct SnareMood {
     talk_in: f64,
     /// 🕸️ 걸려 들어온 쪽 (단위 벡터 — 출렁 방향)
     spring_dir: (f64, f64),
+    /// 🕸️🎣 이 시각(clock)까지 날아가다 거미집에 들어가면 무조건 걸림 (거미인간이 낚아챔 — brain_webpal.rs)
+    sure_until: f64,
 }
 
 impl SnareMood {
@@ -56,6 +59,7 @@ impl SnareMood {
             torn: None,
             talk_in: 0.0,
             spring_dir: (0.0, 1.0),
+            sure_until: f64::NEG_INFINITY,
         }
     }
 }
@@ -132,7 +136,7 @@ impl Pet {
             self.snare.inside.clear();
             return false;
         }
-        let flung = self.thrown && matches!(self.state, State::Air { .. });
+        let flung = (self.thrown || self.clock < self.snare.sure_until) && matches!(self.state, State::Air { .. });
         let now = self.webs_touching();
         let fresh: Vec<u64> = if flung { now.clone() } else { now.iter().copied().filter(|id| !self.snare.inside.contains(id)).collect() };
         self.snare.inside = now;
@@ -146,6 +150,12 @@ impl Pet {
             }
         }
         false
+    }
+
+    /// 🕸️🎣 앞으로 secs초 동안 날아가다 거미집에 들어가면 무조건 걸림 (거미인간이 거미집으로 낚아챔 — brain_webpal.rs)
+    pub(super) fn sure_snare(&mut self, secs: f64) {
+        self.snare.sure_until = self.clock + secs;
+        self.snare.inside.clear();
     }
 
     /// 🕸️🖱️ 사용자가 끌어 놓은 순간 (pointer_up): 몸이 보이는 거미집 안이면 물건처럼 무조건 걸림 — 나는 동물도. 거미인간·막 빠져나온 동물은 빼고. 걸렸으면 true

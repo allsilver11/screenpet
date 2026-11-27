@@ -409,7 +409,7 @@ impl Corner {
     }
 
     /// 사분원이 펼쳐지는 쪽 (가로, 세로 ±1). 둥근 거미집은 (0, 0)
-    fn inward(self) -> (f64, f64) {
+    pub(crate) fn inward(self) -> (f64, f64) {
         match self {
             Corner::TopLeft => (1.0, 1.0),
             Corner::TopRight => (-1.0, 1.0),

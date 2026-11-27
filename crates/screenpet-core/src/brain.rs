@@ -4438,6 +4438,11 @@ mod webtrip_tests;
 mod orb_tests;
 #[path = "brain_snare.rs"]
 pub mod snare_moves;
+#[path = "brain_webpal.rs"]
+pub mod webpal_moves;
+#[cfg(test)]
+#[path = "brain_webpal_tests.rs"]
+mod webpal_tests;
 #[cfg(test)]
 #[path = "brain_snare_tests.rs"]
 mod snare_tests;

@@ -33,6 +33,7 @@
 //!   높이에서 살랑살랑 매달림 (Hang, hang_down 그림 — 웅크린 채 두 손·두 발로 줄을 잡음). 가끔 가까운 펫이나 커서 쪽을 보며 "hey there".
 //!   끝나면 몸을 뒤집어 사뿐 내려앉거나 (낮아서 영웅 착지 없음) 줄을 타고 다시 올라가 (HangClimb) 놓고 영웅 착지.
 //!   줄은 닻 → 맨 위 손발 (grip.hang_down). 창에 붙은 줄은 창을 따라가고 창이 닫히면 놓음, 끼어들면 (잡기·자리 비움·조작 모드 등) 놓고 떨어짐
+//! - 🕷️🤝 그네에 친구 태우기 · 구석 거미집으로 친구 낚아채기는 brain_webpal.rs (start_web_swing·step_weave·update_web이 부름).
 //! - 🎮 조작 모드에선 ↑↑로 줄을 쏴 그네를 직접 탐 (brain_feat.rs — 그동안 update_web은 손을 뗌, step_zip·swing_hand_offset을 빌려 씀).
 //! - 지금 뻗은 줄은 web_line (앱이 덮개 창에 그림).
 //!
@@ -61,6 +62,8 @@ pub enum WebAim {
     Perch { web: u64, k: u32, at: (f64, f64) },
     /// 🙃 바로 머리 위 닻 (거꾸로 매달려 내려오려고)
     Hang(HangLine),
+    /// 🕸️🎣 다 짠 거미집으로 낚아챌 동물 (key = social_key, at: 줄이 붙는 점 = 몸 가운데, to: 거미집 속 발 자리 — brain_webpal.rs)
+    Snatch { key: u64, at: (f64, f64), to: (f64, f64) },
 }
 
 impl WebAim {
@@ -70,7 +73,7 @@ impl WebAim {
             WebAim::Corner(s) => (s.x, s.y),
             WebAim::Anchor(a) => (a.x, a.y),
             WebAim::Hang(l) => (l.x, l.y),
-            WebAim::Object { at, .. } | WebAim::Pet { at, .. } | WebAim::Lasso { at, .. } | WebAim::Perch { at, .. } => at,
+            WebAim::Object { at, .. } | WebAim::Pet { at, .. } | WebAim::Lasso { at, .. } | WebAim::Perch { at, .. } | WebAim::Snatch { at, .. } => at,
         }
     }
 }
@@ -149,6 +152,8 @@ pub struct WebMood {
     chain_until: f64,
     /// 🌉🌉 이어 가는 쪽 (±1)
     chain_dir: f64,
+    /// 🕷️🤝 그네 태우기·낚아채기 (brain_webpal.rs)
+    pub(super) pal: super::webpal_moves::PalMood,
 }
 
 impl WebMood {
@@ -176,6 +181,7 @@ impl WebMood {
             chain_at: f64::INFINITY,
             chain_until: f64::NEG_INFINITY,
             chain_dir: 1.0,
+            pal: super::webpal_moves::PalMood::new(seed),
         }
     }
 }
@@ -296,7 +302,7 @@ impl Pet {
         if !self.play_free() || self.romp_interrupted() {
             return false;
         }
-        self.maybe_pull(dt, world) || self.maybe_cocoon(dt, world) || self.maybe_play_web(dt) || self.maybe_spin_web(dt, world) || self.maybe_web_swing(dt, world)
+        self.maybe_pull(dt, world) || self.maybe_cocoon(dt, world) || self.maybe_snatch(dt, world) || self.maybe_play_web(dt) || self.maybe_spin_web(dt, world) || self.maybe_web_swing(dt, world)
             || self.maybe_hang_down(dt, world)
     }
 
@@ -786,6 +792,8 @@ impl Pet {
                 self.web.chain_left = self.web.rng.u32(lo..=hi) - 1;
                 self.facing = facing;
                 self.begin_shoot(WebAim::Anchor(anchor));
+                // 🌉🤝 곁의 친구를 태울지 (brain_webpal.rs)
+                self.pick_rider();
                 return true;
             }
         }
@@ -933,8 +941,11 @@ impl Pet {
     }
 
     /// 줄 쏘기 시작 ("thwip!")
-    fn begin_shoot(&mut self, aim: WebAim) {
+    pub(super) fn begin_shoot(&mut self, aim: WebAim) {
         self.web.exit_side = None;
+        // 🕷️🤝 지난 태우기·낚아채기는 잊음 (새로 정하는 쪽이 쏜 뒤에 다시 채움)
+        self.web.pal.rider = None;
+        self.web.pal.snatch = None;
         self.web.exit_out = None;
         self.pacing.after_beat = None;
         self.clear_hover();
@@ -992,6 +1003,10 @@ impl Pet {
                         self.state = State::Web { phase: WebPhase::Weave { spot, shot: 1 }, t: 0.0 };
                         return;
                     }
+                    // 🕸️🎣 다 짰으면 낚아챌 친구에게 줄 (brain_webpal.rs)
+                    if self.snatch_after_weave(spot) {
+                        return;
+                    }
                 }
                 WebAim::Anchor(anchor) => {
                     self.standing = None;
@@ -1043,6 +1058,10 @@ impl Pet {
                     self.state = State::Web { phase: WebPhase::HangRise { line, from: (self.body.x, self.body.y) }, t: 0.0 };
                     return;
                 }
+                WebAim::Snatch { key, at, to } => {
+                    self.snatch_hit(key, at, to);
+                    return;
+                }
                 WebAim::Pet { key, at, to } => {
                     let spot = self.web.pets.iter().find(|s| s.key == key).copied();
                     let from = spot.map_or(at, |s| (s.x, s.y));
@@ -1064,7 +1083,7 @@ impl Pet {
             self.state = State::Web { phase: WebPhase::Weave { spot, shot }, t };
         } else if shot + 1 < spot.shots {
             self.state = State::Web { phase: WebPhase::Weave { spot, shot: shot + 1 }, t: 0.0 };
-        } else {
+        } else if !self.snatch_after_weave(spot) {
             self.state = self.rest_beat();
         }
     }
@@ -1113,6 +1132,8 @@ impl Pet {
         self.body.vy = vy;
         self.thrown = false;
         self.gentle_drop = false;
+        // 🌉🤝 태운 친구도 같은 속도로 놓음 (brain_webpal.rs)
+        self.drop_rider(vx, vy);
         // 🌉🚪 친구 화면으로 나가는 그네: 이제 날아가다 그 끝을 넘으면 넘어감 (web_exit_out)
         if let Some(side) = self.web.exit_side.take() {
             self.web.exit_out = Some((side, self.clock + web::EXIT_FLY_SECS));
