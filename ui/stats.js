@@ -1,5 +1,6 @@
 // 📊 펫 통계 (개발자 컴퓨터만 — spec 2026-11-23-pet-stats). 릴레이의 날짜별 익명 합계를 받아 그림:
-// 기간 합계 표(종류마다 키운 사람 · 새로 고름 · 바꿔 들임 · 바꿔 떠남)와 막대그래프, 날짜별 표.
+// 기간 합계 표(종류마다 하루 평균 키운 사람 · 키우는 비율 · 새로 데려옴 · 바꿔 옴 · 바꿔 감)와 칸 설명, 막대그래프, 날짜별 표.
+// 보고에는 누가 보냈는지가 없어서 기간 동안 "몇 명"인지는 셀 수 없음: 그래서 날마다 센 사람 수의 평균과 그날 앱을 켠 사람 중 비율을 보임.
 // 받기: stats_list() → `stats-days` {ok, reason, days: [{day, reports, kept, chosen, changed: [{from, to, n}], versions}]} (오래된 날 먼저).
 // 이름은 릴레이가 아는 종류이거나 "other"뿐이지만 그래도 textContent로만 넣음.
 const { invoke } = window.__TAURI__.core;
@@ -71,6 +72,26 @@ function table(head, lines) {
   return t;
 }
 
+// 소수 한 자리까지 (".0"은 뺌)
+function one(x) {
+  return String(Math.round(x * 10) / 10);
+}
+
+// 사람 수 글자
+function people(x) {
+  return `${one(x)}명`;
+}
+
+// 칸마다 쉬운 말 설명 (표 아래)
+const LEGEND = [
+  "하루 평균 키운 사람: 그 종류를 키운 사람 수를 날마다 세서 평균낸 값이에요.",
+  "키우는 비율: 앱을 켠 사람 중 그 종류를 키운 사람의 비율이에요 (기간 전체).",
+  "새로 데려옴: 처음 설치해 고르거나 펫을 하나 더 데려온 횟수예요.",
+  "바꿔 옴: 다른 종류에서 이 종류로 바꾼 횟수예요.",
+  "바꿔 감: 이 종류에서 다른 종류로 바꾼 횟수예요.",
+  "보고에는 누가 보냈는지가 없어서, 날마다 센 사람이 같은 사람인지는 알 수 없어요.",
+];
+
 // 고른 기간의 합계·그래프·날짜별 표를 그림
 function render() {
   const n = Number(daysEl.value) || 30;
@@ -85,27 +106,32 @@ function render() {
   }
   emptyEl.style.display = "none";
   const { rows, reports } = sumUp(days);
+  const avg = (s) => rows[s].kept / days.length;
+  const share = (s) => (reports ? `${Math.round((rows[s].kept / reports) * 100)}%` : "-");
   const order = Object.keys(rows).sort((a, b) => rows[b].kept - rows[a].kept || a.localeCompare(b));
-  totalsEl.append(el("h3", "", `기간 합계 (${days[0].day} ~ ${days[days.length - 1].day}, 보고 ${reports}개)`));
-  totalsEl.append(table(["종류", "키운 날·사람", "새로 고름", "바꿔 들임", "바꿔 떠남"], order.map((s) => [petName(s), rows[s].kept, rows[s].chosen, rows[s].into, rows[s].outof])));
-  // 막대그래프: 키운 수
-  chartEl.append(el("h3", "", "키운 수 막대그래프"));
-  const max = Math.max(1, ...order.map((s) => rows[s].kept));
+  totalsEl.append(el("h3", "", `기간 합계 (${days[0].day} ~ ${days[days.length - 1].day} · 통계가 온 날 ${days.length}일 · 하루 평균 ${people(reports / days.length)}이 앱을 켬)`));
+  totalsEl.append(table(["종류", "하루 평균 키운 사람", "키우는 비율", "새로 데려옴", "바꿔 옴", "바꿔 감"], order.map((s) => [petName(s), people(avg(s)), share(s), rows[s].chosen, rows[s].into, rows[s].outof])));
+  const legend = el("div", "legend");
+  for (const line of LEGEND) legend.append(el("div", "", line));
+  totalsEl.append(legend);
+  // 막대그래프: 하루 평균 키운 사람
+  chartEl.append(el("h3", "", "하루 평균 키운 사람 막대그래프"));
+  const max = Math.max(1e-9, ...order.map(avg));
   for (const s of order) {
     const bar = el("div", "bar");
     const fill = el("div", "fill");
-    fill.style.width = `${Math.round((rows[s].kept / max) * 300)}px`;
-    bar.append(el("span", "name", petName(s)), fill, el("span", "n", String(rows[s].kept)));
+    fill.style.width = `${Math.round((avg(s) / max) * 300)}px`;
+    bar.append(el("span", "name", petName(s)), fill, el("span", "n", people(avg(s))));
     chartEl.append(bar);
   }
   // 날짜별 (최신 먼저)
   dailyEl.append(el("h3", "", "날짜별"));
   for (const d of [...days].reverse()) {
-    const one = sumUp([d]).rows;
-    const names = Object.keys(one).sort((a, b) => one[b].kept - one[a].kept || a.localeCompare(b));
+    const day = sumUp([d]).rows;
+    const names = Object.keys(day).sort((a, b) => day[b].kept - day[a].kept || a.localeCompare(b));
     const versions = Object.entries(d.versions || {}).map(([v, c]) => `v${v} ${c}`).join(", ");
-    dailyEl.append(el("div", "meta", `${d.day} · 보고 ${d.reports}개${versions ? " · " + versions : ""}`));
-    dailyEl.append(table(["종류", "키움", "새로 고름", "바꿔 들임"], names.map((s) => [petName(s), one[s].kept, one[s].chosen, one[s].into])));
+    dailyEl.append(el("div", "meta", `${d.day} · 앱을 켠 사람 ${people(d.reports || 0)}${versions ? " · " + versions : ""}`));
+    dailyEl.append(table(["종류", "키운 사람", "새로 데려옴", "바꿔 옴"], names.map((s) => [petName(s), people(day[s].kept), day[s].chosen, day[s].into])));
   }
 }
 
