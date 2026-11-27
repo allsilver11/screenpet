@@ -104,7 +104,7 @@
 | mail | `save_fail` | ERROR | took_ms err | `letters.json` 쓰기 실패 (다음에 다시 씀) |
 | mail | `load_fail` | ERROR | file | `letters.json`(또는 `.bak`)을 못 읽음 |
 | stats | `stats_in` | INFO | day | 📊 지난날 통계 보고를 셈 (날짜만 — 누가·무슨 종류·몇 개인지 없음, 저장은 몇 분마다 따로) |
-| stats | `stats_refused` | WARN | conn reason | 안 셈: `day`(이상하거나 너무 지난 날)·`size`·`dup`(그날 이미 보냄)은 `stats_ok`로 답함 (앱이 버림), `ip`·`full`(하루 한도)은 답하지 않음 (앱이 다음 연결에 다시 보냄) |
+| stats | `stats_refused` | WARN | conn reason | 안 셈: `day`(이상하거나 너무 지난 날)·`size`·`dup`(그날 이미 보냄 — 같은 키나 같은 익명 번호)·`id`(익명 번호 모양이 틀림)은 `stats_ok`로 답함 (앱이 버림), `ip`·`full`(하루 한도)은 답하지 않음 (앱이 다음 연결에 다시 보냄) |
 | stats | `stats_list` | INFO | conn peer n | 독자(개발자)가 날짜별 합계를 받음 |
 | stats | `save_fail` | ERROR | took_ms err | `stats.json` 쓰기 실패 (몇 분마다 한꺼번에 씀 — 다음에 다시) |
 | stats | `load_fail` | ERROR | file | `stats.json`을 못 읽음 (`.bak` 없음 — 빈 통계로 시작) |

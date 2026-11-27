@@ -1,7 +1,8 @@
 // 📊 펫 통계 (개발자 컴퓨터만 — spec 2026-11-23-pet-stats). 릴레이의 날짜별 익명 합계를 받아 그림:
-// 기간 합계 표(종류마다 하루 평균 키운 사람 · 키우는 비율 · 새로 데려옴 · 바꿔 옴 · 바꿔 감)와 칸 설명, 막대그래프, 날짜별 표.
-// 보고에는 누가 보냈는지가 없어서 기간 동안 "몇 명"인지는 셀 수 없음: 그래서 날마다 센 사람 수의 평균과 그날 앱을 켠 사람 중 비율을 보임.
-// 받기: stats_list() → `stats-days` {ok, reason, days: [{day, reports, kept, chosen, changed: [{from, to, n}], versions}]} (오래된 날 먼저).
+// 기간 합계 표(종류마다 키운 사람(서로 다른 번호) · 하루 평균 키운 사람 · 키우는 비율 · 새로 데려옴 · 바꿔 옴 · 바꿔 감)와 칸 설명, 막대그래프, 날짜별 표.
+// 보고에는 누구인지는 없고 앱이 만든 익명 번호만 있음 (정책 2026-11-27): 기간 동안 서로 다른 사람 수는 날마다 온 번호(`people`)와
+// 종류마다 키운 번호의 자리(`keepers`)를 모아 겹치지 않게 셈. 번호가 없는 예전 보고는 사람 수에 안 들어가니 그런 날이 있으면 알림.
+// 받기: stats_list() → `stats-days` {ok, reason, days: [{day, reports, kept, chosen, changed: [{from, to, n}], versions, people?, keepers?}]} (오래된 날 먼저).
 // 이름은 릴레이가 아는 종류이거나 "other"뿐이지만 그래도 textContent로만 넣음.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
@@ -58,6 +59,25 @@ function sumUp(days) {
   return { rows, reports };
 }
 
+// 기간 동안 서로 다른 익명 번호: {all: 앱을 켠 번호들, bySpecies: {종류: 번호들}, missing: 번호 없는 보고가 있었음}
+function distinct(days) {
+  const all = new Set();
+  const bySpecies = {};
+  let missing = false;
+  for (const d of days) {
+    const people = Array.isArray(d.people) ? d.people : [];
+    if (people.length < (d.reports || 0)) missing = true;
+    for (const p of people) all.add(p);
+    for (const [s, slots] of Object.entries(d.keepers || {})) {
+      const set = (bySpecies[s] ||= new Set());
+      for (const i of Array.isArray(slots) ? slots : []) {
+        if (Number.isInteger(i) && i >= 0 && i < people.length) set.add(people[i]);
+      }
+    }
+  }
+  return { all, bySpecies, missing };
+}
+
 // 머리줄과 줄들로 표를 만듦
 function table(head, lines) {
   const t = el("table");
@@ -84,13 +104,17 @@ function people(x) {
 
 // 칸마다 쉬운 말 설명 (표 아래)
 const LEGEND = [
+  "키운 사람 (서로 다른 번호): 기간 동안 그 종류를 키운 서로 다른 사람 수예요. 앱이 만든 익명 번호로 세서, 누구인지는 모르지만 같은 사람을 두 번 세지 않아요.",
   "하루 평균 키운 사람: 그 종류를 키운 사람 수를 날마다 세서 평균낸 값이에요.",
   "키우는 비율: 앱을 켠 사람 중 그 종류를 키운 사람의 비율이에요 (기간 전체).",
   "새로 데려옴: 처음 설치해 고르거나 펫을 하나 더 데려온 횟수예요.",
   "바꿔 옴: 다른 종류에서 이 종류로 바꾼 횟수예요.",
   "바꿔 감: 이 종류에서 다른 종류로 바꾼 횟수예요.",
-  "보고에는 누가 보냈는지가 없어서, 날마다 센 사람이 같은 사람인지는 알 수 없어요.",
+  "하루 평균 칸은 날마다 센 값이라 같은 사람이 여러 날 세질 수 있어요.",
 ];
+
+// 번호 없는 보고가 섞였을 때 알림
+const MISSING_NOTE = "익명 번호가 없는 예전 보고는 사람 수에 안 들어가요.";
 
 // 고른 기간의 합계·그래프·날짜별 표를 그림
 function render() {
@@ -109,8 +133,13 @@ function render() {
   const avg = (s) => rows[s].kept / days.length;
   const share = (s) => (reports ? `${Math.round((rows[s].kept / reports) * 100)}%` : "-");
   const order = Object.keys(rows).sort((a, b) => rows[b].kept - rows[a].kept || a.localeCompare(b));
-  totalsEl.append(el("h3", "", `기간 합계 (${days[0].day} ~ ${days[days.length - 1].day} · 통계가 온 날 ${days.length}일 · 하루 평균 ${people(reports / days.length)}이 앱을 켬)`));
-  totalsEl.append(table(["종류", "하루 평균 키운 사람", "키우는 비율", "새로 데려옴", "바꿔 옴", "바꿔 감"], order.map((s) => [petName(s), people(avg(s)), share(s), rows[s].chosen, rows[s].into, rows[s].outof])));
+  const ids = distinct(days);
+  // 번호가 하나도 없으면 서로 다른 사람은 셀 수 없음 ("-")
+  const apart = (s) => (ids.all.size ? `${(ids.bySpecies[s] || new Set()).size}명` : "-");
+  const whole = ids.all.size ? ` · 서로 다른 사람 ${ids.all.size}명이 앱을 켬` : "";
+  totalsEl.append(el("h3", "", `기간 합계 (${days[0].day} ~ ${days[days.length - 1].day} · 통계가 온 날 ${days.length}일 · 하루 평균 ${people(reports / days.length)}이 앱을 켬${whole})`));
+  totalsEl.append(table(["종류", "키운 사람 (서로 다른 번호)", "하루 평균 키운 사람", "키우는 비율", "새로 데려옴", "바꿔 옴", "바꿔 감"], order.map((s) => [petName(s), apart(s), people(avg(s)), share(s), rows[s].chosen, rows[s].into, rows[s].outof])));
+  if (ids.missing) totalsEl.append(el("div", "legend", MISSING_NOTE));
   const legend = el("div", "legend");
   for (const line of LEGEND) legend.append(el("div", "", line));
   totalsEl.append(legend);

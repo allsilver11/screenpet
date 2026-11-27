@@ -1,7 +1,9 @@
 //! 📊 익명 펫 통계 모으기 (spec 2026-11-23-pet-stats) — 설정(`config.json` `pet_stats`)에 남는 하루치 기록과 보낼 보고.
 //! 동의(`consent`)가 `Some(true)`일 때만 셈: 답하기 전(None)이나 안 보낸다고 했으면(Some(false)) 아무것도 모으지 않음.
 //! 날짜(앱의 그 지역 날짜)가 바뀌면 지난날 기록이 보고 하나가 되고 (더 새 날이 오면 바뀜), 릴레이가 `stats_ok`로 받으면 지움.
-//! 담는 것: 그날 키운 종류들, 새로 고른 종류와 횟수, 바꾼 것(from→to) 횟수, 앱 버전 — 이름·설치 id·친구는 없음.
+//! 담는 것: 그날 키운 종류들, 새로 고른 종류와 횟수, 바꾼 것(from→to) 횟수, 앱 버전, 익명 번호(`anon`) — 이름·네트워크 id·친구는 없음.
+//! 익명 번호: 동의하면 한 번 무작위로 만들어 설정에 둠 (네트워크 키·친구 id와 상관없음). 누구인지는 모르지만
+//! 서로 다른 사람끼리는 구분해 세게 함. 안 보내기로 하면 지우고, 다시 켜면 새로 만듦.
 
 use screenpet_proto::pet_stats::{self as ps, Change, StatsReport};
 use serde::{Deserialize, Serialize};
@@ -37,6 +39,14 @@ pub struct StatsBook {
     /// 새로 설치해 고른 첫 펫을 아직 못 셈 (답이 다음 실행에 와도 그때 "새로 고름"으로 셈)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub first_pick: bool,
+    /// 이 설치의 익명 번호 (동의했을 때만, 소문자 16진수 16글자 — 끄면 지움)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anon: Option<String>,
+}
+
+/// 새 익명 번호: 64비트 무작위를 소문자 16진수 16글자로 (어떤 id에서도 만들지 않음)
+fn new_anon() -> String {
+    format!("{:016x}", fastrand::u64(..))
 }
 
 impl StatsBook {
@@ -54,11 +64,28 @@ impl StatsBook {
     pub fn set_consent(&mut self, yes: bool) -> bool {
         let before = self.clone();
         self.consent = Some(yes);
-        if !yes {
+        if yes {
+            self.ensure_anon();
+        } else {
             self.today = None;
             self.pending = None;
+            self.anon = None;
         }
         *self != before
+    }
+
+    /// 익명 번호가 없거나 모양이 틀리면 새로 만들고, 번호 없는 보낼 보고(옛 버전이 만든 것)에도 붙임. 바뀌었으면 true
+    fn ensure_anon(&mut self) -> bool {
+        let mut changed = false;
+        if !self.anon.as_deref().is_some_and(ps::is_anon) {
+            self.anon = Some(new_anon());
+            changed = true;
+        }
+        if let Some(p) = self.pending.as_mut().filter(|p| p.anon.is_none()) {
+            p.anon = self.anon.clone();
+            changed = true;
+        }
+        changed
     }
 
     /// 새로 설치한 실행임: 아직 답이 없으면 첫 펫을 답할 때 "새로 고름"으로 셀 수 있게 적어 둠 (이미 답한 설치는 아님)
@@ -81,19 +108,20 @@ impl StatsBook {
         changed
     }
 
-    /// 날짜를 맞춤: 오늘 기록이 지난날이면 보고로 바꾸고 (이틀보다 더 지난 날은 릴레이도 안 받으니 버림) 오늘을 새로 엶.
+    /// 날짜를 맞춤: 익명 번호를 챙기고, 오늘 기록이 지난날이면 보고로 바꾸고 (이틀보다 더 지난 날은 릴레이도 안 받으니 버림) 오늘을 새로 엶.
     /// 동의 안 했으면 아무 일도 없음. 바뀌었으면 true
     pub fn roll(&mut self, today: &str, version: &str) -> bool {
         if !self.on() || ps::day_number(today).is_none() {
             return false;
         }
+        let made = self.ensure_anon();
         if self.today.as_ref().is_some_and(|t| t.day == today) {
-            return false;
+            return made;
         }
         if let Some(old) = self.today.take() {
             let fresh = ps::day_number(&old.day).zip(ps::day_number(today)).is_some_and(|(o, t)| o < t && t - o <= ps::LATE_DAYS);
             if fresh {
-                self.pending = Some(StatsReport { day: old.day, v: version.to_string(), kept: old.kept.into_iter().collect(), chosen: old.chosen, changed: old.changed });
+                self.pending = Some(StatsReport { day: old.day, v: version.to_string(), kept: old.kept.into_iter().collect(), chosen: old.chosen, changed: old.changed, anon: self.anon.clone() });
             }
         }
         // 보낼 보고도 너무 지났으면 버림
@@ -259,6 +287,42 @@ mod tests {
         no.mark_first_pick();
         no.answer(false, "2026-11-23", V, &["cat"]);
         assert_eq!(no, StatsBook { consent: Some(false), ..StatsBook::default() });
+    }
+
+    #[test]
+    fn consenting_makes_a_random_anon_number_that_rides_every_report_and_saying_no_deletes_it() {
+        let b = yes();
+        let id = b.anon.clone().expect("made on yes");
+        assert!(ps::is_anon(&id), "{id}");
+        // 설정에 남아 다음 실행에도 같은 번호
+        let mut b: StatsBook = serde_json::from_str(&serde_json::to_string(&b).unwrap()).unwrap();
+        assert_eq!(b.anon.as_deref(), Some(id.as_str()));
+        b.set_consent(true);
+        assert_eq!(b.anon.as_deref(), Some(id.as_str()), "saying yes again keeps it");
+        b.note_kept("2026-11-22", V, &["cat"]);
+        b.roll("2026-11-23", V);
+        assert_eq!(b.report().unwrap().anon.as_deref(), Some(id.as_str()));
+        // 끄면 번호도 지우고, 다시 켜면 새 번호
+        assert!(b.set_consent(false));
+        assert_eq!(b.anon, None);
+        b.set_consent(true);
+        let again = b.anon.clone().unwrap();
+        assert!(ps::is_anon(&again) && again != id);
+        assert_ne!(yes().anon, yes().anon, "random per install");
+        assert_eq!(StatsBook::default().anon, None, "nothing before an answer");
+    }
+
+    #[test]
+    fn an_install_that_said_yes_before_anon_numbers_gets_one_and_its_unsent_report_too() {
+        // 옛 설정: 동의했고 보낼 보고가 남았지만 번호가 없음
+        let old = r#"{"consent":true,"today":{"day":"2026-11-23"},"pending":{"day":"2026-11-22","v":"0.7.4","kept":["cat"]}}"#;
+        let mut b: StatsBook = serde_json::from_str(old).unwrap();
+        assert_eq!(b.anon, None);
+        assert!(b.roll("2026-11-23", V), "a number is made: save it");
+        let id = b.anon.clone().unwrap();
+        assert!(ps::is_anon(&id));
+        assert_eq!(b.report().unwrap().anon.as_deref(), Some(id.as_str()));
+        assert!(!b.roll("2026-11-23", V), "only once");
     }
 
     #[test]

@@ -1,5 +1,7 @@
-//! 📊 익명 펫 통계 저장 (`stats.json`, spec 2026-11-23-pet-stats). 날짜(보고하는 앱의 지역 날짜)마다 합계만 둠:
-//! 종류별 키운 설치 수·새로 고른 수·바꾼 쌍·앱 버전. 파일에는 이 합계뿐임 — 누가 보냈는지 이어 볼 값이 없음.
+//! 📊 익명 펫 통계 저장 (`stats.json`, spec 2026-11-23-pet-stats). 날짜(보고하는 앱의 지역 날짜)마다 합계를 둠:
+//! 종류별 키운 설치 수·새로 고른 수·바꾼 쌍·앱 버전, 그리고 그날 보고한 익명 번호와 종류마다 키운 번호 (2026-11-27 정책:
+//! 앱이 무작위로 만든 번호라 누구인지는 모르지만 기간 동안 서로 다른 사람 수를 셈). 키·주소와 번호를 잇는 값은 파일에 없음.
+//! 같은 익명 번호는 그날 한 번만 셈 (파일에 남으니 다시 켜도). 번호는 모양을 엄격히 검사하고 하루 `MAX_DAY_PEOPLE`개까지만 적음.
 //! 같은 설치가 같은 날 두 번 보내 부풀리지 않게 그날 보낸 설치를 기억하지만 **메모리에만**: 날마다 새로 뽑은
 //! 비밀(메모리에만)로 만든 키 해시라 공개키 목록(`relay.json`)으로 다시 만들 수 없고, 그날이 보고를 받는 동안
 //! (`ACCEPT_DAYS`)만 두며, 릴레이를 다시 켜면 잊음 (그만큼 중복 막기는 약해짐 — 일부러).
@@ -35,6 +37,8 @@ pub enum Refuse {
     Ip,
     /// 그날 받을 만큼 받음 (다음에 다시 보낼 수 있음)
     Full,
+    /// 익명 번호 모양이 틀림
+    Id,
 }
 
 impl Refuse {
@@ -46,12 +50,13 @@ impl Refuse {
             Refuse::Dup => "dup",
             Refuse::Ip => "ip",
             Refuse::Full => "full",
+            Refuse::Id => "id",
         }
     }
 
     /// 다시 보내도 소용없음: `stats_ok`로 답해 앱이 버리게 함. 아니면 답하지 않아 앱이 다음 연결에 다시 보냄
     pub fn is_final(&self) -> bool {
-        matches!(self, Refuse::Day | Refuse::Size | Refuse::Dup)
+        matches!(self, Refuse::Day | Refuse::Size | Refuse::Dup | Refuse::Id)
     }
 }
 
@@ -74,6 +79,19 @@ pub struct PetStats {
     seen: HashMap<String, HashSet<[u8; 16]>>,
     /// (날짜, 주소 묶음) → 보고 수 (메모리에만)
     ip_counts: HashMap<(String, String), u32>,
+}
+
+/// 파일에서 읽은 하루의 번호 칸 검사: 번호 모양·상한·겹침·자리 범위 중 하나라도 틀리면 그날 번호와 자리를 모두 버림 (합계는 둠)
+fn tidy_people(day: &mut StatsDay) {
+    let unique: HashSet<&String> = day.people.iter().collect();
+    let ok = day.people.len() <= ps::MAX_DAY_PEOPLE
+        && unique.len() == day.people.len()
+        && day.people.iter().all(|p| ps::is_anon(p))
+        && day.keepers.values().all(|v| v.iter().all(|i| usize::from(*i) < day.people.len()));
+    if !ok {
+        day.people.clear();
+        day.keepers.clear();
+    }
 }
 
 /// 이름 → 횟수 표에 더하되 횟수는 상한까지
@@ -111,9 +129,14 @@ impl PetStats {
         if r.kept.len() > ps::MAX_KEPT || r.chosen.len() > ps::MAX_CHOSEN || r.changed.len() > ps::MAX_CHANGED {
             return Err(Refuse::Size);
         }
+        let anon = r.anon.as_deref();
+        if anon.is_some_and(|a| !ps::is_anon(a)) {
+            return Err(Refuse::Id);
+        }
         let hash = self.key_hash(&day, key);
         let seen = self.seen.get(&day);
-        if seen.is_some_and(|s| s.contains(&hash)) {
+        let known_anon = |a: &str| self.data.days.get(&day).is_some_and(|d| d.people.iter().any(|p| p == a));
+        if seen.is_some_and(|s| s.contains(&hash)) || anon.is_some_and(known_anon) {
             return Err(Refuse::Dup);
         }
         if seen.is_some_and(|s| s.len() >= MAX_REPORTS) {
@@ -136,8 +159,16 @@ impl PetStats {
         }
         let entry = self.data.days.entry(day.clone()).or_insert_with(|| StatsDay { day: day.clone(), ..StatsDay::default() });
         entry.reports += 1;
+        // 익명 번호는 하루 상한까지만 적고 (넘으면 합계에만), 종류마다 그 번호의 자리를 적음
+        let slot = anon.filter(|_| entry.people.len() < ps::MAX_DAY_PEOPLE).map(|a| {
+            entry.people.push(a.to_string());
+            (entry.people.len() - 1) as u16
+        });
         for s in kept {
             *entry.kept.entry(s.to_string()).or_insert(0) += 1;
+            if let Some(i) = slot {
+                entry.keepers.entry(s.to_string()).or_default().push(i);
+            }
         }
         for (s, n) in chosen.into_iter().filter(|(_, n)| *n > 0) {
             *entry.chosen.entry(s).or_insert(0) += n;
@@ -163,7 +194,7 @@ impl PetStats {
     }
 
     /// `before`(없으면 가장 최신, 날짜 모양이 아니면 빈 쪽)보다 앞선 날들을 최신 날부터, `stats_days` JSON이 `REPLY_MAX`를 넘지 않을 만큼 줌.
-    /// 하루는 늘 하나는 들어감 (가장 큰 하루도 몇 KiB). 더 앞선 날이 남았으면 true
+    /// 하루는 늘 하나는 들어감 (익명 번호가 가득한 하루는 `REPLY_MAX`를 넘을 수 있지만 메시지 한도 `MAX_FRAME` 안). 더 앞선 날이 남았으면 true
     pub fn days_page(&mut self, now: u64, before: Option<&str>) -> (Vec<StatsDay>, bool) {
         self.prune(now);
         // 날짜 모양이 아닌 `before`는 빈 쪽 (글자 비교로 엉뚱한 날을 주지 않게)
@@ -199,7 +230,7 @@ impl PetStats {
         self.dirty = true;
     }
 
-    /// `stats.json`을 읽음. 없거나 깨졌으면 빈 통계 (날짜 이름이 이상한 칸과 모르는 칸은 버림)
+    /// `stats.json`을 읽음. 없거나 깨졌으면 빈 통계 (날짜 이름이 이상한 칸과 모르는 칸은 버림, 번호 칸이 망가진 날은 번호만 버림)
     pub fn load(dir: &Path) -> PetStats {
         let Ok(bytes) = std::fs::read(dir.join(STATS_FILE)) else { return PetStats::default() };
         match serde_json::from_slice::<Data>(&bytes) {
@@ -207,6 +238,7 @@ impl PetStats {
                 data.days.retain(|d, _| ps::day_number(d).is_some());
                 for (d, v) in data.days.iter_mut() {
                     v.day = d.clone();
+                    tidy_people(v);
                 }
                 PetStats { data, ..PetStats::default() }
             }
@@ -253,7 +285,79 @@ mod tests {
             kept: kept.iter().map(|s| s.to_string()).collect(),
             chosen: chosen.iter().map(|(s, n)| (s.to_string(), *n)).collect(),
             changed: changed.iter().map(|(f, t, n)| Change { from: f.to_string(), to: t.to_string(), n: *n }).collect(),
+            anon: None,
         }
+    }
+
+    /// `i`번째 익명 번호 (16진수 16글자)
+    fn anon(i: usize) -> String {
+        format!("{i:016x}")
+    }
+
+    /// 익명 번호를 단 보고
+    fn with_anon(r: StatsReport, id: &str) -> StatsReport {
+        StatsReport { anon: Some(id.to_string()), ..r }
+    }
+
+    #[test]
+    fn anon_numbers_tell_people_apart_per_day_and_kind_old_reports_still_count() {
+        let mut s = PetStats::default();
+        let (a, b) = (anon(0xa), anon(0xb));
+        s.submit("k1", "1.1.1.1", &with_anon(report(DAY, &["cat", "penguin", "Cat"], &[], &[]), &a), NOW).unwrap();
+        s.submit("k2", "1.1.1.2", &with_anon(report(DAY, &["cat"], &[], &[]), &b), NOW).unwrap();
+        s.submit("k3", "1.1.1.3", &report(DAY, &["bat"], &[], &[]), NOW).unwrap();
+        s.submit("k1", "1.1.1.1", &with_anon(report("2026-11-23", &["cat"], &[], &[]), &a), NOW).unwrap();
+        let (days, _) = all_pages(&mut s, NOW);
+        let d = &days[1];
+        assert_eq!(d.reports, 3, "a report without a number still counts in the totals");
+        assert_eq!(d.people, vec![a.clone(), b.clone()]);
+        assert_eq!(d.keepers, BTreeMap::from([("cat".into(), vec![0, 1]), ("other".into(), vec![0]), ("penguin".into(), vec![0])]));
+        assert_eq!(d.kept["bat"], 1);
+        assert_eq!((days[0].people.clone(), days[0].keepers["cat"].clone()), (vec![a], vec![0]), "the same number on another day");
+    }
+
+    #[test]
+    fn the_same_anon_number_counts_once_a_day_even_from_another_key_or_after_a_restart() {
+        let dir = tmp_dir("anon-dup");
+        let mut s = PetStats::default();
+        let r = with_anon(report(DAY, &["cat"], &[], &[]), &anon(7));
+        s.submit("k1", "1.1.1.1", &r, NOW).unwrap();
+        assert_eq!(s.submit("k2", "2.2.2.2", &r, NOW), Err(Refuse::Dup));
+        PetStats::save(&dir, &s.snapshot().unwrap()).unwrap();
+        let mut back = PetStats::load(&dir);
+        assert_eq!(back.submit("k1", "1.1.1.1", &r, NOW), Err(Refuse::Dup), "the file remembers the day's numbers");
+        assert_eq!(back.days_page(NOW, None).0[0].reports, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_malformed_anon_number_is_refused_for_good() {
+        let mut s = PetStats::default();
+        for bad in ["ABCDEF0123456789", "abc", "0123456789abcdef0", "0123456789abcdeg", "", "../../etc/passwd"] {
+            assert_eq!(s.submit("k", "1.1.1.1", &with_anon(report(DAY, &["cat"], &[], &[]), bad), NOW), Err(Refuse::Id), "{bad}");
+        }
+        assert!(Refuse::Id.is_final());
+        assert_eq!(Refuse::Id.as_str(), "id");
+        assert!(s.days_page(NOW, None).0.is_empty());
+    }
+
+    #[test]
+    fn a_day_keeps_only_so_many_numbers_and_still_fits_one_message() {
+        let mut s = PetStats::default();
+        let kept: Vec<&str> = ps::SPECIES.iter().take(ps::MAX_KEPT).copied().collect();
+        for i in 0..ps::MAX_DAY_PEOPLE + 5 {
+            let r = with_anon(report(DAY, &kept, &[], &[]), &anon(i));
+            s.submit(&format!("p{i}"), &format!("10.{}.{}.1", i / 200, i % 200), &r, NOW).unwrap();
+        }
+        fill_day(&mut s, DAY, NOW);
+        let (days, more) = s.days_page(NOW, None);
+        let d = &days[0];
+        assert!(!more);
+        assert_eq!(d.people.len(), ps::MAX_DAY_PEOPLE, "the rest count in the totals only");
+        assert!(d.reports as usize > ps::MAX_DAY_PEOPLE + 5);
+        assert!(d.keepers.values().all(|v| v.len() <= ps::MAX_DAY_PEOPLE && v.iter().all(|i| (*i as usize) < d.people.len())));
+        let size = serde_json::to_string(&screenpet_proto::relay::ServerMsg::StatsDays { days: days.clone(), more }).unwrap().len();
+        assert!(size + 4096 <= screenpet_proto::MAX_FRAME, "the fullest day alone fits one message: {size}");
     }
 
     /// 쪽을 모두 넘겨 모은 날들 (최신 먼저)과 쪽마다의 JSON 크기
@@ -291,8 +395,8 @@ mod tests {
     fn the_saved_file_holds_only_totals_nothing_tied_to_a_key() {
         let mut s = PetStats::default();
         let keys: Vec<String> = (0..5u8).map(|i| screenpet_crypto::to_hex(&[i; 32])).collect();
-        for k in &keys {
-            s.submit(k, "1.1.1.1", &report(DAY, &["cat"], &[], &[]), NOW).unwrap();
+        for (i, k) in keys.iter().enumerate() {
+            s.submit(k, "1.1.1.1", &with_anon(report(DAY, &["cat"], &[], &[]), &anon(0xfeed_0000 + i)), NOW).unwrap();
         }
         let file = String::from_utf8(s.snapshot().unwrap()).unwrap();
         let v: serde_json::Value = serde_json::from_str(&file).unwrap();
@@ -304,7 +408,10 @@ mod tests {
             assert!(!file.contains(&old));
         }
         assert!(!file.contains("1.1.1.1"));
-        assert!(!file.chars().collect::<Vec<_>>().windows(16).any(|w| w.iter().all(|c| c.is_ascii_hexdigit())), "no hex blobs at all: {file}");
+        // 16진수 덩어리는 앱이 보낸 익명 번호뿐 (키에서 만든 값 없음)
+        let mut blobs: Vec<String> = file.split('"').filter(|w| w.len() >= 16 && w.chars().all(|c| c.is_ascii_hexdigit())).map(String::from).collect();
+        blobs.sort();
+        assert_eq!(blobs, (0..5).map(|i| anon(0xfeed_0000 + i)).collect::<Vec<_>>(), "{file}");
     }
 
     #[test]
@@ -446,6 +553,14 @@ mod tests {
         let days = odd.days_page(NOW, None).0;
         assert_eq!((days.len(), days[0].day.as_str(), days[0].reports), (1, DAY, 2), "bad day names are dropped, day is filled in, old seen is ignored");
         assert!(odd.snapshot().is_none());
+        // 망가진 번호 칸은 그날 번호만 버림 (합계는 둠)
+        std::fs::write(
+            dir.join(STATS_FILE),
+            br#"{"days":{"2026-11-22":{"reports":2,"people":["0000000000000001","BAD"],"keepers":{"cat":[0]}},"2026-11-21":{"reports":1,"people":["0000000000000001"],"keepers":{"cat":[3]}},"2026-11-20":{"reports":1,"people":["0000000000000001"],"keepers":{"cat":[0]}}}}"#,
+        )
+        .unwrap();
+        let days = PetStats::load(&dir).days_page(NOW, None).0;
+        assert_eq!(days.iter().map(|d| (d.reports, d.people.len(), d.keepers.len())).collect::<Vec<_>>(), vec![(2, 0, 0), (1, 0, 0), (1, 1, 1)]);
         std::fs::write(dir.join(STATS_FILE), b"{torn").unwrap();
         assert!(PetStats::load(&dir).days_page(NOW, None).0.is_empty(), "a torn file: empty stats");
         let _ = std::fs::remove_dir_all(&dir);

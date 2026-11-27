@@ -157,7 +157,7 @@ sequenceDiagram
 | `letter_private` | `id, private` | 🔒 공개 건의함에서 숨김 | **3** | 독자 |
 | `board_put` | `items[{id, name, line}]` (≤ 20) | 📮 공개 요약 올리기 | **3** | 독자 |
 | `board_list` | `page` | 📮 공개 건의함 한 쪽 → `board_page` | **3** | 모두 |
-| `stats_report` | `report{day, v, kept[], chosen{}, changed[{from,to,n}]}` | 📊 지난날 익명 펫 통계 (하루 한 번, 연결당 날마다 한 번) → `stats_ok` | **4** | 모두 (동의한 앱만 보냄) |
+| `stats_report` | `report{day, v, kept[], chosen{}, changed[{from,to,n}], anon?}` | 📊 지난날 익명 펫 통계 (하루 한 번, 연결당 날마다 한 번) → `stats_ok` | **4** | 모두 (동의한 앱만 보냄) |
 | `stats_get` | `before?` | 📊 `before`보다 앞선 날의 합계 한 쪽 → `stats_days` (앱은 `more`인 동안 차례로 청해 모음) | **4** | 편지함 독자 |
 | `letter` + `img` | `box, img` (hex) | 🖼️ 사진 붙은 편지: `box`는 사진을 말하는 봉투, `img`는 같은 Noise 세션으로 이어 봉인한 사진 (≤ 120 KiB + 256). 텍스트 전체 ≤ `MAX_LETTER_TEXT`(약 258 KiB) — 먼저 `letter_begin` → `letter_go`를 받은 인증 연결의 `letter` 하나만 16 KiB를 넘을 수 있음. 옛 릴레이(v4 이하)는 큰 메시지에 연결을 끊으므로 앱은 사진 없는 봉투만 보내고 창에 "글만 갔어요" | **5** | 모두 |
 | `letter_begin` | – | 🖼️ 사진 편지 자리 청하기 → `letter_go` 또는 `letter_refused {reason: photo_busy}`. 자리를 받은 연결만 소켓 받기 한도가 64 KiB → `MAX_LETTER_TEXT`로 커짐 (편지 하나). 자리 규칙: 그 연결이 이미 쥐고 있으면 안 줌, 설치 키마다 20초에 하나, 주소 묶음마다 분에 4개, 전체 32개. 받고 30초 안에 편지를 다 보내지 않으면 연결을 끊음(`photo_timeout`) — 반쯤 받은 큰 버퍼도 자리와 같이 놓임 (`Limits::max_photo_letters`·`photo_letter_hold`·`photo_begin_key_gap`·`photo_begins_per_ip_per_min`) | **5** | 모두 |
@@ -185,7 +185,7 @@ sequenceDiagram
 | `weather` | `place, code (WMO 0–99), at` | ☀️ 지역 날씨 | v2 |
 | `board_page` | `items[{id,name,line,at,status}], page, pages, total` | 📮 한 쪽 (5개, 최신 먼저) | v3, `status`: `none`·`done`·`rejected` |
 | `stats_ok` | `day` | 📊 그날 보고를 끝냄 (셌거나, 다시 보내도 소용없음 — 앱은 다시 안 보냄). 주소·하루 한도면 답 없음 → 앱이 다음 연결에 다시 | v4 |
-| `stats_days` | `days[{day, reports, kept{}, chosen{}, changed[], versions{}}], more` | 📊 날짜별 합계 한 쪽 (최신 날 먼저, JSON ≤ 24 KiB, 모두 90일) | v4, 독자만 |
+| `stats_days` | `days[{day, reports, kept{}, chosen{}, changed[], versions{}, people?[], keepers?{종류: [people 자리]}}], more` | 📊 날짜별 합계 한 쪽 (최신 날 먼저, JSON ≤ 24 KiB — 익명 번호가 가득한 하루는 혼자 한 쪽, 64 KiB 안 — 모두 90일) | v4, 독자만 |
 | `letter_go` | – | 🖼️ 이제 큰 `letter` 하나를 보내도 됨 | v5 |
 | `letter_img` | `id, img` (hex, `""` = 없음·너무 잦은 요청) | 🖼️ 편지 사진 (봉인된 채) | v5, 독자만. 앱의 WS 받기 한도도 `MAX_LETTER_TEXT`까지 (친구 프레임은 여전히 65535) |
 

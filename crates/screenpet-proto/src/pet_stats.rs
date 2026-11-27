@@ -1,6 +1,7 @@
 //! 📊 익명 펫 통계 (spec 2026-11-23-pet-stats): 앱이 하루 한 번 보내는 지난날 보고([`StatsReport`])와
 //! 릴레이가 개발자에게만 주는 날짜별 합계([`StatsDay`]), 그리고 양쪽이 같이 지키는 한도·이름 다듬기·날짜 계산.
-//! 보고에는 펫 종류와 횟수, 앱 버전만 있음 (이름·설치 id·친구·창 제목 없음). 날짜는 보고하는 앱의 지역 날짜임.
+//! 보고에는 펫 종류와 횟수, 앱 버전, 그리고 앱이 무작위로 만든 익명 번호([`StatsReport::anon`])만 있음 (이름·네트워크 id·공개키·친구·창 제목 없음).
+//! 익명 번호로 누구인지는 모르지만 서로 다른 사람끼리는 구분해 셈 (정책, 2026-11-27). 날짜는 보고하는 앱의 지역 날짜임.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -33,6 +34,15 @@ pub const REPLY_MAX: usize = 24 * 1024;
 pub const MAX_DAY_PAIRS: usize = 64;
 /// 하루 합계의 버전 수 상한 (넘는 새 버전은 other로)
 pub const MAX_DAY_VERSIONS: usize = 24;
+/// 익명 번호 글자 수 (소문자 16진수 — 64비트 무작위)
+pub const ANON_LEN: usize = 16;
+/// 하루 합계에 적는 익명 번호 수 상한 (넘는 보고는 합계에만 셈 — 하루가 앱 메시지 한도 안에 들게)
+pub const MAX_DAY_PEOPLE: usize = 500;
+
+/// 익명 번호 모양: 정확히 [`ANON_LEN`]글자 소문자 16진수
+pub fn is_anon(s: &str) -> bool {
+    s.len() == ANON_LEN && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
 
 /// 바꾼 것 하나: `from`에서 `to`로 `n`번
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,9 +71,12 @@ pub struct StatsReport {
     /// 그날 바꾼 것들
     #[serde(default)]
     pub changed: Vec<Change>,
+    /// 이 설치의 익명 번호 (앱이 무작위로 만듦 — 네트워크 id·공개키와 상관없음, 통계를 끄면 지움). 옛 앱은 없음
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anon: Option<String>,
 }
 
-/// 릴레이가 두는 하루 합계 (개발자에게 `stats_days`로 감). 누가 보냈는지는 없음
+/// 릴레이가 두는 하루 합계 (개발자에게 `stats_days`로 감). 누가 보냈는지는 없고 익명 번호만 있음
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StatsDay {
@@ -79,6 +92,12 @@ pub struct StatsDay {
     pub changed: Vec<Change>,
     /// 앱 버전 → 보고 수
     pub versions: BTreeMap<String, u32>,
+    /// 그날 보고한 익명 번호들 (온 차례, 최대 [`MAX_DAY_PEOPLE`]). 옛 보고·옛 날은 빠짐
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<String>,
+    /// 종류 → 그 종류를 키운 번호들의 `people` 안 자리 (번호를 되풀이하지 않아 하루가 작게)
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub keepers: BTreeMap<String, Vec<u16>>,
 }
 
 /// 아는 종류면 그 이름, 아니면 [`OTHER`]
@@ -165,6 +184,23 @@ mod tests {
         for n in [-1, 0, 59, 365, 11_016, 20_000, 30_000] {
             assert_eq!(day_number(&day_string(n)), Some(n));
         }
+    }
+
+    #[test]
+    fn anon_numbers_are_exactly_sixteen_lowercase_hex() {
+        assert!(is_anon("0123456789abcdef"));
+        for bad in ["0123456789ABCDEF", "0123456789abcde", "0123456789abcdef0", "0123456789abcdeg", "", "０123456789abcd", "0123456789abcd f"] {
+            assert!(!is_anon(bad), "{bad}");
+        }
+        assert_eq!(ANON_LEN, 16);
+    }
+
+    #[test]
+    fn old_reports_and_days_without_anon_numbers_still_parse() {
+        let r: StatsReport = serde_json::from_str(r#"{"day":"2026-11-22","v":"0.7.4"}"#).unwrap();
+        assert_eq!(r.anon, None);
+        let d: StatsDay = serde_json::from_str(r#"{"day":"2026-11-22","reports":2}"#).unwrap();
+        assert!(d.people.is_empty() && d.keepers.is_empty());
     }
 
     #[test]

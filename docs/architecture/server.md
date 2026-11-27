@@ -66,7 +66,7 @@ Relay::start (lib.rs:224)
 | `hub/limits.rs` | `Bucket`(토큰 버킷), 미닫이 창 표, 주소→네트워크 묶기 |
 | `store.rs` | `relay.json` 설치 저장소, `relay.key`, `write_private` |
 | `mailbox.rs` | `letters.json`: 봉인 편지 + 공개 요약, 보내기 한도 |
-| `pet_stats.rs` | 📊 `stats.json`: 날짜별 합계만. 중복 막기(그날 비밀로 만든 키 해시)와 주소별 수는 메모리에만, 재검사·상한, 쪽 나누기 |
+| `pet_stats.rs` | 📊 `stats.json`: 날짜별 합계와 그날 익명 번호(`people`·`keepers`). 중복 막기(그날 비밀로 만든 키 해시)와 주소별 수는 메모리에만, 재검사·상한, 쪽 나누기 |
 | `board.rs` | 📮 공개 요약 재검사(`check_name`, `check_line`), 쪽 계산 |
 | `weather.rs` | Open-Meteo·MET 받기(`open_meteo`, `met`), 서비스 차례(`Providers`), MET 기호 → WMO, `Weathers` 표 |
 | `downloads.rs` | `/downloads/` 정적 파일, 이름 허용 목록, 자리·속도 한도 |
@@ -88,7 +88,7 @@ Relay::start (lib.rs:224)
 | `control.json` | `registration`, `friendcode`, `relay`, `banned_keys`, `banned_ips`, `mailbox_readers` | JSON | **시작 거부** (차단이 조용히 풀리면 안 됨) | `control.rs:18`, `:47` `load` |
 | `letters.json` (+`.bak`) | 봉인 편지(hex), 상태, 보낸 기록(`sent`), 차단 키, 공개 요약(`board`), 🖼️ 사진 크기(`img`) | JSON | `.bak`, 그래도 안 되면 빈 편지함 | `mailbox.rs` `load`, `save` |
 | `letter-photos/<id>.bin` | 🖼️ 편지에 붙은 봉인 사진 (릴레이는 못 엶), 편지를 받을 때 씀 (0600, fsync) | 바이트 | 없거나 크기가 틀리면 "사진 없음". 시작할 때 남은 편지 것이 아닌 파일은 지움 | `mailbox.rs` `put_photo`, `photo`, `prune_photos` |
-| `stats.json` | 📊 `days`: 날짜(보낸 앱의 지역 날짜) → `{reports, kept{종류:수}, chosen{종류:수}, changed[{from,to,n}], versions{버전:수}}`, 최근 90일. 그 밖엔 없음: 중복 막기용 키 해시는 날마다 새로 뽑은 비밀(메모리에만)로 만들어 메모리에만 두고 그날이 보고를 받는 4일 동안만 (다시 켜면 잊음 — 그날 두 번 셀 수 있음), `.bak`도 없음. 5분마다(`stats_save_every`)와 끝날 때 한꺼번에 쓰므로 두 시점의 파일을 비교해도 보고 하나가 떼어지지 않고, 오래된 날 지우기도 그때 저장됨 | JSON | 빈 통계로 시작 | `pet_stats.rs` `load`, `save`; `hub/pet_stats.rs` `save_stats` |
+| `stats.json` | 📊 `days`: 날짜(보낸 앱의 지역 날짜) → `{reports, kept{종류:수}, chosen{종류:수}, changed[{from,to,n}], versions{버전:수}, people[익명 번호], keepers{종류:[people 자리]}}`, 최근 90일. 익명 번호는 앱이 무작위로 만든 것 (키와 이어지지 않음, 하루 500개까지 — 읽을 때 칸이 망가진 날은 번호만 버림). 그 밖엔 없음: 중복 막기용 키 해시는 날마다 새로 뽑은 비밀(메모리에만)로 만들어 메모리에만 두고 그날이 보고를 받는 4일 동안만 (다시 켜면 잊음 — 그날 두 번 셀 수 있음), `.bak`도 없음. 5분마다(`stats_save_every`)와 끝날 때 한꺼번에 쓰므로 두 시점의 파일을 비교해도 보고 하나가 떼어지지 않고, 오래된 날 지우기도 그때 저장됨 | JSON | 빈 통계로 시작 | `pet_stats.rs` `load`, `save`; `hub/pet_stats.rs` `save_stats` |
 | `admin.sock` | 관리 소켓 (0600) | Unix socket | 시작 때 남은 것 지움 | `admin.rs:45` `bind` |
 | `downloads/` | `latest.json`, `latest.json.sig`, 설치 파일 2개 | 정적 | – | `downloads.rs` |
 
@@ -133,7 +133,7 @@ Relay::start (lib.rs:224)
 | 큐 | `max_outbox_bytes` / `max_total_outbox_bytes` / `slow_after` | 2 MiB / 256 MiB / 5 s |
 | 저장 | `save_every` / `prune_every` | 30 s / 600 s |
 | 📮 | `board_gap` | 500 ms (더 빠른 `board_list`는 답 없음) |
-| 📊 | `pet_stats.rs`·`screenpet_proto::pet_stats` 상수 | 보고 하나: `kept` ≤ 8, `chosen` ≤ 16, `changed` ≤ 32 (넘으면 안 셈), 칸마다 횟수 ≤ 20, 모르는 종류·이상한 버전 → `other`. 날짜는 앱의 지역 날짜로, 릴레이 UTC 오늘 ~ 사흘 전만 (`ACCEPT_DAYS` — UTC-12 지역 날짜 + 이틀 늦음). 같은 설치 같은 날 한 번(릴레이가 켜져 있는 동안), 주소 묶음당 하루 20개, 하루 2만 개 (이 둘은 답하지 않아 앱이 다시 보냄). 하루 합계의 쌍 ≤ 64·버전 ≤ 24 (넘는 새 것은 `other`). 90일 보관, `stats_save_every` 5분. 연결당 `stats_report` 8개(날마다 하나), `stats_get` 초에 2개·몰아서 30개, 한 쪽 JSON ≤ 24 KiB (`REPLY_MAX`, 앱 메시지 한도 64 KiB) |
+| 📊 | `pet_stats.rs`·`screenpet_proto::pet_stats` 상수 | 보고 하나: `kept` ≤ 8, `chosen` ≤ 16, `changed` ≤ 32 (넘으면 안 셈), 칸마다 횟수 ≤ 20, 모르는 종류·이상한 버전 → `other`. 날짜는 앱의 지역 날짜로, 릴레이 UTC 오늘 ~ 사흘 전만 (`ACCEPT_DAYS` — UTC-12 지역 날짜 + 이틀 늦음). 같은 설치 같은 날 한 번(키 해시: 릴레이가 켜져 있는 동안, 익명 번호: 파일에 남으니 늘), 익명 번호는 정확히 소문자 16진수 16글자(아니면 `id`로 거절)·하루 500개까지(`MAX_DAY_PEOPLE`, 넘으면 합계에만), 주소 묶음당 하루 20개, 하루 2만 개 (이 둘은 답하지 않아 앱이 다시 보냄). 하루 합계의 쌍 ≤ 64·버전 ≤ 24 (넘는 새 것은 `other`). 90일 보관, `stats_save_every` 5분. 연결당 `stats_report` 8개(날마다 하나), `stats_get` 초에 2개·몰아서 30개, 한 쪽 JSON ≤ 24 KiB (`REPLY_MAX`, 앱 메시지 한도 64 KiB) |
 | 🔄 다운로드 | `max_downloads` / `_per_ip` | 8 / 2 |
 | | `download_deadline` / `min_rate` / `grace` / `stall` | 30 min / 64 KiB/s / 20 s / 10 s |
 

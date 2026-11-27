@@ -1,7 +1,8 @@
 //! 📊 익명 펫 통계 (spec 2026-11-23-pet-stats): 처음 켤 때 한 번 묻는 창(`stats_ask.html`)과
 //! 개발자 컴퓨터(dev_key)에만 있는 "📊 펫 통계" 창(`stats.html` — 날짜별 표·기간 합계·막대그래프).
 //! 모으기·보고 만들기는 코어 `pet_stats::StatsBook`(설정에 남음, 게임 루프가 씀), 보내기는 net(v4 릴레이에만).
-//! 답하기 전에는 아무것도 모으거나 보내지 않음. 보내는 것: 지난날 키운 종류·새로 고른 종류·바꾼 횟수·앱 버전.
+//! 답하기 전에는 아무것도 모으거나 보내지 않음. 보내는 것: 지난날 키운 종류·새로 고른 종류·바꾼 횟수·앱 버전·익명 번호
+//! (앱이 무작위로 만든 번호 — 누구인지는 모르지만 서로 다른 사람을 구분해 셈, 끄면 지움).
 
 use screenpet_net::pet_stats::StatsDay;
 use serde::Serialize;
@@ -15,7 +16,7 @@ use crate::AppState;
 /// 처음 묻는 창 라벨
 pub const ASK_LABEL: &str = "stats-ask";
 /// 처음 묻는 창 모양
-const ASK_FORM: Form = Form { label: ASK_LABEL, page: "stats_ask.html", title: "ScreenPet 익명 통계", size: (400.0, 250.0) };
+const ASK_FORM: Form = Form { label: ASK_LABEL, page: "stats_ask.html", title: "ScreenPet 익명 통계", size: (400.0, 310.0) };
 /// 📊 펫 통계 창 라벨 (개발자만)
 pub const STATS_LABEL: &str = "stats";
 /// 📊 펫 통계 창 모양

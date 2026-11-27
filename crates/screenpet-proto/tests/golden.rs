@@ -71,10 +71,16 @@ fn every_client_message() {
         kept: vec!["cat".into(), "penguin".into()],
         chosen: BTreeMap::from([("penguin".to_string(), 1)]),
         changed: vec![Change { from: "cat".into(), to: "bat".into(), n: 2 }],
+        anon: None,
     };
     client(
-        ClientMsg::StatsReport { report },
+        ClientMsg::StatsReport { report: report.clone() },
         r#"{"t":"stats_report","report":{"day":"2026-11-22","v":"0.7.4","kept":["cat","penguin"],"chosen":{"penguin":1},"changed":[{"from":"cat","to":"bat","n":2}]}}"#,
+    );
+    // 📊 익명 번호가 있으면 끝에 실림 (옛 릴레이는 모르는 칸이라 무시함)
+    client(
+        ClientMsg::StatsReport { report: StatsReport { anon: Some("0123456789abcdef".into()), ..report } },
+        r#"{"t":"stats_report","report":{"day":"2026-11-22","v":"0.7.4","kept":["cat","penguin"],"chosen":{"penguin":1},"changed":[{"from":"cat","to":"bat","n":2}],"anon":"0123456789abcdef"}}"#,
     );
     client(ClientMsg::StatsGet { before: None }, r#"{"t":"stats_get"}"#);
     client(ClientMsg::StatsGet { before: Some("2026-11-10".into()) }, r#"{"t":"stats_get","before":"2026-11-10"}"#);
@@ -167,10 +173,18 @@ fn every_server_message() {
         chosen: BTreeMap::new(),
         changed: vec![Change { from: "cat".into(), to: "other".into(), n: 1 }],
         versions: BTreeMap::from([("0.7.4".to_string(), 3)]),
+        people: vec![],
+        keepers: BTreeMap::new(),
     };
     server(
-        ServerMsg::StatsDays { days: vec![day], more: true },
+        ServerMsg::StatsDays { days: vec![day.clone()], more: true },
         r#"{"t":"stats_days","days":[{"day":"2026-11-22","reports":3,"kept":{"cat":2},"chosen":{},"changed":[{"from":"cat","to":"other","n":1}],"versions":{"0.7.4":3}}],"more":true}"#,
+    );
+    // 📊 익명 번호가 온 날: 그날 번호들과 종류마다 키운 번호의 자리 (people 안 순번)
+    let with_ids = StatsDay { people: vec!["0123456789abcdef".into(), "fedcba9876543210".into()], keepers: BTreeMap::from([("cat".to_string(), vec![0, 1])]), ..day };
+    server(
+        ServerMsg::StatsDays { days: vec![with_ids], more: false },
+        r#"{"t":"stats_days","days":[{"day":"2026-11-22","reports":3,"kept":{"cat":2},"chosen":{},"changed":[{"from":"cat","to":"other","n":1}],"versions":{"0.7.4":3},"people":["0123456789abcdef","fedcba9876543210"],"keepers":{"cat":[0,1]}}],"more":false}"#,
     );
     server_in(r#"{"t":"stats_days","days":[]}"#, ServerMsg::StatsDays { days: vec![], more: false });
     for (s, json) in [(BoardStatus::None, r#""none""#), (BoardStatus::Done, r#""done""#), (BoardStatus::Rejected, r#""rejected""#)] {
